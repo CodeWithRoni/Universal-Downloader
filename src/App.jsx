@@ -204,7 +204,15 @@ export default function App() {
             {probing ? 'Fetching…' : 'Fetch'}
           </button>
         </div>
-        {error && <p className="error">⚠ {error}</p>}
+        {!isTauri && (
+        <div style={{ marginTop: 14, border: '1px dashed var(--border)', borderRadius: 12, padding: '12px 14px', color: 'var(--muted)', fontSize: '.9rem' }}>
+          🌐 You are viewing the <strong style={{ color: '#fff' }}>web preview</strong> — the full design works here with demo data,
+          but real downloads need the desktop app (a browser cannot run the download engine).
+          <a href="https://github.com/CodeWithRoni/Youtube-Downloader/releases" target="_blank" rel="noreferrer"
+             style={{ color: '#ff5e3a', fontWeight: 700, marginLeft: 8 }}>Get the Desktop App ↓</a>
+        </div>
+      )}
+      {error && <p className="error">⚠ {error}</p>}
         <div className="folder-row">
           <span>Save to:</span>
           <input value={outDir} onChange={(e) => setOutDir(e.target.value)} spellCheck={false} />
