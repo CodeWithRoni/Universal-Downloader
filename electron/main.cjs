@@ -3,7 +3,7 @@
 // core.cjs (all the real logic lives there and is plain Node.js).
 'use strict'
 
-const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron')
+const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron')
 const path = require('path')
 const core = require('./core.cjs')
 
@@ -110,6 +110,18 @@ ipcMain.handle('start-download', async (_event, p) => {
 
 ipcMain.handle('cancel-download', async (_event, id) => {
   core.cancelDownload(id)
+})
+
+ipcMain.handle('pause-download', async (_event, id) => {
+  core.pauseDownload(id)
+})
+
+ipcMain.handle('open-file', async (_event, filePath) => {
+  if (filePath) await shell.openPath(filePath)
+})
+
+ipcMain.handle('show-in-folder', async (_event, filePath) => {
+  if (filePath) shell.showItemInFolder(filePath)
 })
 
 ipcMain.handle('pick-folder', async () => {

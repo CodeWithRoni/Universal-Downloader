@@ -147,6 +147,41 @@ function parsePlaylist(data) {
   }
 }
 
+function langName(code) {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) || code
+  } catch {
+    return code
+  }
+}
+
+/// Subtitle choices for the UI: real (manual) subtitles first, then
+/// auto-generated captions (priority languages first, capped — YouTube
+/// lists 100+ machine-translation targets, which would flood the menu).
+function parseSubtitles(data) {
+  const out = []
+  const seen = new Set()
+  const manual = data.subtitles || {}
+  for (const lang of Object.keys(manual)) {
+    const fmts = manual[lang]
+    const name = (Array.isArray(fmts) && fmts[0] && fmts[0].name) || langName(lang)
+    out.push({ lang, label: name, auto: false })
+    seen.add(lang)
+  }
+  const priority = ['bn', 'en', 'hi', 'ur', 'ar', 'es', 'fr', 'de', 'id', 'ms']
+  const autoLangs = Object.keys(data.automatic_captions || {}).filter((l) => !seen.has(l))
+  autoLangs.sort((a, b) => {
+    const pa = priority.indexOf(a)
+    const pb = priority.indexOf(b)
+    if (pa !== -1 || pb !== -1) return (pa === -1 ? 99 : pa) - (pb === -1 ? 99 : pb)
+    return a.localeCompare(b)
+  })
+  for (const lang of autoLangs.slice(0, 40)) {
+    out.push({ lang, label: `${langName(lang)} (auto)`, auto: true })
+  }
+  return out
+}
+
 function parseVideo(data) {
   const formats = Array.isArray(data.formats) ? data.formats : []
 
@@ -209,6 +244,7 @@ function parseVideo(data) {
     uploader: data.uploader || '',
     video_options: videoOptions,
     audio_options: audioOptions,
+    subtitle_options: parseSubtitles(data),
   }
 }
 
@@ -242,7 +278,7 @@ async function getInfo(binPath, url) {
 // Downloading
 // ---------------------------------------------------------------------------
 
-function buildDownloadArgs({ mode, height, formatId, audioQuality, outDir, ffmpegPath }) {
+function buildDownloadArgs({ mode, height, formatId, audioQuality, outDir, ffmpegPath, subtitle, embedTags }) {
   const args = [
     '--newline',
     '--no-warnings',
@@ -256,10 +292,25 @@ function buildDownloadArgs({ mode, height, formatId, audioQuality, outDir, ffmpe
   if (mode === 'audio') {
     args.push('-f', formatId || 'bestaudio/best')
     args.push('-x', '--audio-format', 'mp3', '--audio-quality', audioQuality ? `${audioQuality}K` : '0')
+    if (embedTags) {
+      // Cover art + title/artist tags inside the MP3.
+      args.push('--embed-metadata', '--embed-thumbnail', '--convert-thumbnails', 'jpg')
+    }
   } else {
     const h = height || 720
     args.push('-f', `bestvideo[height<=${h}]+bestaudio/best[height<=${h}]/best`)
     args.push('--merge-output-format', 'mp4')
+    args.push('--embed-metadata')
+    if (subtitle && subtitle.lang) {
+      args.push(subtitle.auto ? '--write-auto-subs' : '--write-subs')
+      args.push('--sub-langs', subtitle.lang)
+      if (subtitle.embed) {
+        args.push('--embed-subs')
+      } else {
+        // A separate .srt file next to the video.
+        args.push('--convert-subs', 'srt')
+      }
+    }
   }
   return args
 }
@@ -282,7 +333,7 @@ function parseProgressLine(line) {
 }
 
 const jobs = new Map()
-const cancelled = new Set()
+const stopReasons = new Map() // job id -> 'cancelled' | 'paused'
 
 function killTree(child) {
   if (!child || child.killed) return
@@ -291,6 +342,15 @@ function killTree(child) {
       spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
       return
     } catch { /* fall through */ }
+  }
+  // POSIX: the child was spawned detached (its own process group), so kill
+  // the whole group — this also stops ffmpeg helpers yt-dlp started, which
+  // would otherwise keep the output pipes (and the job) hanging.
+  if (!IS_WIN && child.pid) {
+    try {
+      process.kill(-child.pid, 'SIGKILL')
+      return
+    } catch { /* group already gone */ }
   }
   try {
     child.kill('SIGKILL')
@@ -304,7 +364,7 @@ function startDownloadProcess({ binPath, args, url, id, onProgress }) {
   return new Promise((resolve, reject) => {
     let child
     try {
-      child = spawn(binPath, [...args, url], { stdio: ['ignore', 'pipe', 'pipe'] })
+      child = spawn(binPath, [...args, url], { stdio: ['ignore', 'pipe', 'pipe'], detached: !IS_WIN })
     } catch (e) {
       reject(new Error(`Could not start download: ${e.message}`))
       return
@@ -312,6 +372,9 @@ function startDownloadProcess({ binPath, args, url, id, onProgress }) {
     jobs.set(id, child)
     let settled = false
     let lastError = ''
+    let lastPercent = 0
+    let lastDestination = null
+    let finalPath = null
 
     child.stdout.setEncoding('utf8')
     let buf = ''
@@ -321,9 +384,20 @@ function startDownloadProcess({ binPath, args, url, id, onProgress }) {
       while ((idx = buf.indexOf('\n')) >= 0) {
         const line = buf.slice(0, idx).replace(/\r$/, '')
         buf = buf.slice(idx + 1)
+        // Remember where the file is going, so the UI can offer
+        // "Open file" / "Show in folder" when the download finishes.
+        let m
+        if ((m = line.match(/^\[download\] Destination: (.+)$/))) {
+          lastDestination = m[1].trim()
+        } else if ((m = line.match(/^\[Merger\] Merging formats into "(.+)"$/))) {
+          finalPath = m[1]
+        } else if ((m = line.match(/^\[ExtractAudio\] Destination: (.+)$/))) {
+          finalPath = m[1].trim()
+        }
         const parsed = parseProgressLine(line)
         if (!parsed) continue
         if (parsed.type === 'progress') {
+          lastPercent = parsed.percent
           onProgress({ id, status: 'downloading', percent: parsed.percent, speed: parsed.speed, eta: parsed.eta })
         } else {
           onProgress({ id, status: 'processing', percent: 100, speed: '', eta: '' })
@@ -356,31 +430,53 @@ function startDownloadProcess({ binPath, args, url, id, onProgress }) {
     })
     child.on('close', (code) => {
       jobs.delete(id)
-      const wasCancelled = cancelled.delete(id)
+      const stopReason = stopReasons.get(id)
+      stopReasons.delete(id)
       let status
       let error
-      if (wasCancelled) {
-        status = 'cancelled'
+      if (stopReason) {
+        status = stopReason // 'cancelled' or 'paused'
       } else if (code === 0) {
         status = 'done'
       } else {
         status = 'error'
         error = lastError || 'Download failed'
       }
-      const payload = { id, status, percent: status === 'done' ? 100 : 0, speed: '', eta: '' }
+      const payload = {
+        id,
+        status,
+        percent: status === 'done' ? 100 : status === 'paused' ? lastPercent : 0,
+        speed: '',
+        eta: '',
+      }
       if (error) payload.error = error
+      // yt-dlp keeps the .part file, so a paused download resumes where it
+      // stopped when the same link/quality/folder is downloaded again.
+      if (status === 'done' && (finalPath || lastDestination)) {
+        payload.filePath = finalPath || lastDestination
+      }
       onProgress(payload)
     })
   })
 }
 
-function cancelDownload(id) {
-  cancelled.add(id)
+function stopDownload(id, reason) {
+  stopReasons.set(id, reason)
   const child = jobs.get(id)
   if (child) {
     jobs.delete(id)
     killTree(child)
   }
+}
+
+function cancelDownload(id) {
+  stopDownload(id, 'cancelled')
+}
+
+/// Pause = stop the process but keep the partial (.part) file, so resuming
+/// (starting the same download again) continues instead of restarting.
+function pauseDownload(id) {
+  stopDownload(id, 'paused')
 }
 
 // ---------------------------------------------------------------------------
@@ -444,5 +540,6 @@ module.exports = {
   parseProgressLine,
   startDownloadProcess,
   cancelDownload,
+  pauseDownload,
   downloadYtdlp,
 }

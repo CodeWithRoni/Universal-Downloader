@@ -71,3 +71,12 @@ header{display:flex;justify-content:space-between;align-items:center;gap:16px;fl
 .clear-btn{background:none;border:none;color:var(--muted);margin-top:4px;font-size:.86rem;text-decoration:underline}
 
 footer{text-align:center;color:#5d5d70;font-size:.8rem;margin-top:8px}
+.sub-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px;font-size:.92rem}
+.sub-row select{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:9px;padding:7px 10px;font-size:.9rem;max-width:280px}
+.sub-embed{display:inline-flex;align-items:center;gap:7px;color:var(--muted);font-size:.88rem;cursor:pointer}
+.sub-embed input{accent-color:#ff5e3a;width:16px;height:16px}
+.job-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px;align-items:center}
+.job-actions .job-cancel{margin-top:0}
+.job-btn{background:none;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:4px 13px;font-size:.82rem;cursor:pointer}
+.job-btn:hover{border-color:#ff5e3a}
+.job-status.paused{color:#ffd166}

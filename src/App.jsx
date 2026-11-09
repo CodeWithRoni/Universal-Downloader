@@ -28,7 +28,24 @@ const DEMO_VIDEO = {
     { format_id: '251', label: 'Audio • 160 kbps (webm)', size_text: '9.8 MB' },
     { format_id: '140', label: 'Audio • 128 kbps (m4a)', size_text: '7.9 MB' },
   ],
+  subtitle_options: [
+    { lang: 'bn', label: 'Bangla', auto: false },
+    { lang: 'en', label: 'English', auto: false },
+    { lang: 'en', label: 'English (auto)', auto: true },
+  ],
 }
+
+// Used for playlists (per-video subtitle lists are not fetched in flat mode)
+const GENERIC_SUBS = [
+  { lang: 'bn', label: 'Bangla', auto: false },
+  { lang: 'en', label: 'English', auto: false },
+  { lang: 'hi', label: 'Hindi', auto: false },
+  { lang: 'ur', label: 'Urdu', auto: false },
+  { lang: 'ar', label: 'Arabic', auto: false },
+  { lang: 'en', label: 'English (auto captions)', auto: true },
+  { lang: 'bn', label: 'Bangla (auto captions)', auto: true },
+]
+const subKeyOf = (s) => `${s.lang}::${s.auto ? 'a' : 'm'}`
 
 function fmtDuration(sec) {
   if (!sec && sec !== 0) return ''
@@ -48,7 +65,28 @@ export default function App() {
   const [jobs, setJobs] = useState([])
   const [outDir, setOutDir] = useState('')
   const [tools, setTools] = useState(null)
+  const [subKey, setSubKey] = useState('')
+  const [subEmbed, setSubEmbed] = useState(false)
+  const [embedTags, setEmbedTags] = useState(true)
+  const [history, setHistory] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('yd-history-v1') || '[]') } catch { return [] }
+  })
   const timers = useRef({})
+  const jobsRef = useRef([])
+  useEffect(() => { jobsRef.current = jobs }, [jobs])
+  useEffect(() => {
+    try { localStorage.setItem('yd-history-v1', JSON.stringify(history)) } catch { /* full/blocked */ }
+  }, [history])
+
+  function addHistory(job, filePath) {
+    setHistory((prev) => {
+      if (prev.some((h) => h.jobId === job.id)) return prev
+      return [{
+        jobId: job.id, title: job.title, url: job.url, mode: job.mode,
+        height: job.height, filePath: filePath || null, finishedAt: Date.now(),
+      }, ...prev].slice(0, 100)
+    })
+  }
 
   // ---- init: tools status + default folder; progress listener ----
   useEffect(() => {
@@ -56,6 +94,10 @@ export default function App() {
     api().toolsStatus().then(setTools).catch(() => setTools({ yt_dlp: false, ffmpeg: false }))
     api().defaultDownloadDir().then(setOutDir).catch(() => {})
     const unlisten = api().onProgress((p) => {
+      if (p.status === 'done') {
+        const job = jobsRef.current.find((j) => j.id === p.id)
+        if (job) addHistory(job, p.filePath)
+      }
       setJobs((prev) => prev.map((j) => (j.id === p.id ? { ...j, ...p } : j)))
     })
     return () => { if (unlisten) unlisten() }
@@ -76,6 +118,7 @@ export default function App() {
     try {
       const data = isDesktop ? await api().getInfo(link) : DEMO_VIDEO
       setInfo(data)
+      setSubKey('')
       if (data.kind === 'video') {
         setHeight(data.video_options?.[1]?.height ?? data.video_options?.[0]?.height ?? 720)
         setAudioChoice(data.audio_options?.[0]?.format_id ?? '')
@@ -100,11 +143,19 @@ export default function App() {
     setJobs((prev) => [...newJobs, ...prev])
   }
 
+  function currentSubtitle() {
+    if (mode !== 'video' || !subKey) return null
+    const list = info?.kind === 'video' ? (info.subtitle_options || []) : GENERIC_SUBS
+    const found = list.find((s) => subKeyOf(s) === subKey)
+    return found ? { lang: found.lang, auto: found.auto, embed: subEmbed } : null
+  }
+
   function downloadSingle() {
     enqueue([{
       id: crypto.randomUUID(), url: url.trim(), title: info.title,
       mode, height: mode === 'video' ? height : null,
       formatId: mode === 'audio' ? audioChoice : null, audioQuality: null,
+      subtitle: currentSubtitle(), embedTags,
       status: 'queued', percent: 0, speed: '', eta: '',
     }])
   }
@@ -116,6 +167,7 @@ export default function App() {
       id: crypto.randomUUID(), url: en.url, title: en.title,
       mode, height: mode === 'video' ? height : null,
       formatId: null, audioQuality: mode === 'audio' ? audioChoice : null,
+      subtitle: currentSubtitle(), embedTags,
       status: 'queued', percent: 0, speed: '', eta: '',
     })))
   }
@@ -124,11 +176,12 @@ export default function App() {
     setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: 'downloading' } : j)))
     if (!isDesktop) {
       // demo simulation
-      let p = 0
+      let p = job.percent || 0
       timers.current[job.id] = setInterval(() => {
         p += Math.random() * 9
         if (p >= 100) {
           clearInterval(timers.current[job.id])
+          addHistory(job, null)
           setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, percent: 100, status: 'done', speed: '', eta: '' } : j)))
         } else {
           setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, percent: Math.floor(p), speed: '3.2MiB/s', eta: '00:12' } : j)))
@@ -140,6 +193,7 @@ export default function App() {
       await api().startDownload({
         id: job.id, url: job.url, mode: job.mode, height: job.height,
         formatId: job.formatId, audioQuality: job.audioQuality, outDir,
+        subtitle: job.subtitle || null, embedTags: job.embedTags !== false,
       })
     } catch (e) {
       setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: 'error', error: cleanErr(e) } : j)))
@@ -154,6 +208,35 @@ export default function App() {
     }
     try { await api().cancelDownload(job.id) } catch { /* already finished */ }
     setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: 'cancelled' } : j)))
+  }
+
+  async function pauseJob(job) {
+    if (!isDesktop) {
+      clearInterval(timers.current[job.id])
+      setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: 'paused', speed: '', eta: '' } : j)))
+      return
+    }
+    setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: 'paused', speed: '', eta: '' } : j)))
+    try { await api().pauseDownload(job.id) } catch { /* already finished */ }
+  }
+
+  function resumeJob(job) {
+    // Back into the queue; the queue runner restarts it and yt-dlp
+    // continues from the .part file instead of starting over.
+    setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: 'queued' } : j)))
+  }
+
+  function retryJob(job) {
+    setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: 'queued', percent: 0, error: undefined } : j)))
+  }
+
+  function redownload(item) {
+    enqueue([{
+      id: crypto.randomUUID(), url: item.url, title: item.title,
+      mode: item.mode, height: item.mode === 'video' ? item.height : null,
+      formatId: null, audioQuality: null, subtitle: null, embedTags: true,
+      status: 'queued', percent: 0, speed: '', eta: '',
+    }])
   }
 
   const videoOptions = info?.kind === 'video'
@@ -246,6 +329,26 @@ export default function App() {
                 </label>
               ))}
               <p className="hint">Above 720p, YouTube sends video and audio separately — the app merges them into one MP4 with ffmpeg.</p>
+              <div className="sub-row">
+                <span>Subtitles:</span>
+                {(() => {
+                  const list = info.kind === 'video' ? (info.subtitle_options || []) : GENERIC_SUBS
+                  return list.length ? (
+                    <select value={subKey} onChange={(e) => setSubKey(e.target.value)}>
+                      <option value="">None</option>
+                      {list.map((s) => (
+                        <option key={subKeyOf(s)} value={subKeyOf(s)}>{s.label}</option>
+                      ))}
+                    </select>
+                  ) : <span className="muted">not available for this video</span>
+                })()}
+                {subKey && (
+                  <label className="sub-embed">
+                    <input type="checkbox" checked={subEmbed} onChange={(e) => setSubEmbed(e.target.checked)} />
+                    Embed in video (otherwise a separate .srt file)
+                  </label>
+                )}
+              </div>
             </div>
           ) : (
             <div className="option-list">
@@ -257,6 +360,10 @@ export default function App() {
                 </label>
               ))}
               <p className="hint">Audio is extracted and converted to MP3 with ffmpeg.</p>
+              <label className="sub-embed" style={{ marginTop: 10 }}>
+                <input type="checkbox" checked={embedTags} onChange={(e) => setEmbedTags(e.target.checked)} />
+                Add cover art &amp; song info (tags) to the MP3
+              </label>
             </div>
           )}
 
@@ -305,6 +412,7 @@ export default function App() {
                   {j.status === 'queued' && 'Queued'}
                   {j.status === 'downloading' && `${j.percent || 0}% • ${j.speed || ''} ${j.eta ? '• ETA ' + j.eta : ''}`}
                   {j.status === 'processing' && 'Processing (merging / converting)…'}
+                  {j.status === 'paused' && `⏸ Paused • ${Math.floor(j.percent || 0)}%`}
                   {j.status === 'done' && '✓ Done'}
                   {j.status === 'error' && `✗ ${j.error || 'Failed'}`}
                   {j.status === 'cancelled' && 'Cancelled'}
@@ -313,9 +421,26 @@ export default function App() {
               <div className="job-bar">
                 <div className={`job-fill ${j.status}`} style={{ width: `${j.status === 'done' ? 100 : j.percent || 0}%` }} />
               </div>
-              {(j.status === 'downloading' || j.status === 'queued' || j.status === 'processing') && (
-                <button className="job-cancel" onClick={() => cancelJob(j)}>Cancel</button>
-              )}
+              <div className="job-actions">
+                {(j.status === 'downloading' || j.status === 'processing') && (
+                  <button className="job-btn" onClick={() => pauseJob(j)}>⏸ Pause</button>
+                )}
+                {j.status === 'paused' && (
+                  <button className="job-btn" onClick={() => resumeJob(j)}>▶ Resume</button>
+                )}
+                {j.status === 'error' && (
+                  <button className="job-btn" onClick={() => retryJob(j)}>↻ Retry</button>
+                )}
+                {j.status === 'done' && j.filePath && isDesktop && (
+                  <>
+                    <button className="job-btn" onClick={() => api().openFile(j.filePath)}>▶ Open file</button>
+                    <button className="job-btn" onClick={() => api().showInFolder(j.filePath)}>📂 Folder</button>
+                  </>
+                )}
+                {(j.status === 'downloading' || j.status === 'queued' || j.status === 'processing' || j.status === 'paused') && (
+                  <button className="job-cancel" onClick={() => cancelJob(j)}>Cancel</button>
+                )}
+              </div>
             </div>
           ))}
           <button className="clear-btn" onClick={() => setJobs((prev) => prev.filter((j) => ['downloading', 'processing', 'queued'].includes(j.status)))}>
@@ -324,7 +449,36 @@ export default function App() {
         </section>
       )}
 
-      <footer>For personal use only — please respect creators' copyright and YouTube's terms. Built with Electron + React + yt-dlp.</footer>
+      {history.length > 0 && (
+        <section className="jobs-card">
+          <div className="playlist-bar">
+            <h3 style={{ margin: 0 }}>History</h3>
+            <button className="clear-btn" onClick={() => setHistory([])}>Clear all</button>
+          </div>
+          {history.map((h) => (
+            <div key={h.jobId} className="job">
+              <div className="job-top">
+                <span className="job-title">{h.title}</span>
+                <span className="job-status done">
+                  {new Date(h.finishedAt).toLocaleString()} • {h.mode === 'video' ? `Video${h.height ? ' ' + h.height + 'p' : ''}` : 'Audio MP3'}
+                </span>
+              </div>
+              <div className="job-actions">
+                {h.filePath && isDesktop && (
+                  <>
+                    <button className="job-btn" onClick={() => api().openFile(h.filePath)}>▶ Open file</button>
+                    <button className="job-btn" onClick={() => api().showInFolder(h.filePath)}>📂 Folder</button>
+                  </>
+                )}
+                <button className="job-btn" onClick={() => redownload(h)}>⬇ Download again</button>
+                <button className="job-cancel" onClick={() => setHistory((prev) => prev.filter((x) => x.jobId !== h.jobId))}>Remove</button>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+
+      <footer>For personal use only — please respect creators' copyright and YouTube's terms. Built with Electron + React + yt-dlp. • v1.1</footer>
     </div>
   )
 }
