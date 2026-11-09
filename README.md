@@ -1,4 +1,4 @@
-# RoniTube Downloader — v1 (Desktop)
+# Youtube Downloader — v1 (Desktop)
 
 YouTube ডাউনলোডার ডেস্কটপ অ্যাপ — **Tauri 2 + React** ফ্রন্টএন্ড, **Rust** ব্যাকএন্ড,
 ডাউনলোড ইঞ্জিন **yt-dlp**, মার্জ/MP3 কনভার্সনের জন্য **ffmpeg**।
