@@ -69,6 +69,7 @@ jobs:
           name: installers-${{ strategy.job-index }}
           path: |
             release/*.exe
+            release/*.yml
             release/*.dmg
             release/*.AppImage
             release/*.deb
