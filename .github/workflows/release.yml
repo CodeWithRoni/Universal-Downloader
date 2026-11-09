@@ -74,9 +74,90 @@ jobs:
             release/*.deb
           if-no-files-found: ignore
 
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Java (for Gradle)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the UI
+        run: npm run build
+
+      - name: Generate Android project and sync the web app into it
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      - name: Build release APK (unsigned)
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Collect the APK
+        run: cp android/app/build/outputs/apk/release/app-release-unsigned.apk YouTube-Downloader.apk
+
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-android
+          path: YouTube-Downloader.apk
+
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the UI
+        run: npm run build
+
+      - name: Generate iOS project and sync the web app into it
+        run: |
+          npx cap add ios
+          npx cap sync ios
+
+      - name: Build the app (unsigned, for sideloading)
+        run: |
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release -sdk iphoneos -derivedDataPath ios-build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p Payload
+          cp -R ios-build/Build/Products/Release-iphoneos/App.app Payload/
+          zip -r YouTube-Downloader-unsigned.ipa Payload
+
+      - name: Upload IPA as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-ios
+          path: YouTube-Downloader-unsigned.ipa
+
   release:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: build
+    needs: [build, android, ios]
     runs-on: ubuntu-latest
     steps:
       - name: Download all installer artifacts
@@ -90,5 +171,5 @@ jobs:
         with:
           draft: true
           name: "YouTube Downloader ${{ github.ref_name }}"
-          body: "Download the installer for your system below. Windows: .exe — macOS: .dmg — Linux: .AppImage / .deb"
+          body: "Download the installer for your system below. Windows: .exe — macOS: .dmg — Linux: .AppImage / .deb — Android: .apk (unsigned, sideload) — iOS: .ipa (unsigned, needs AltStore/SideStore to install)"
           files: artifacts/**
