@@ -172,7 +172,7 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <div className="brand"><span className="brand-icon">▶</span> RoniTube <span className="brand-thin">Downloader</span></div>
+        <div className="brand"><span className="brand-icon">▶</span> YouTube <span className="brand-thin">Downloader</span></div>
         <div className={`tools ${tools?.yt_dlp ? 'ok' : 'warn'}`}>
           {!tools ? 'Checking tools…'
             : tools.demo ? 'Browser preview — demo mode'
