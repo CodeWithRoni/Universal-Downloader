@@ -5,6 +5,9 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -12,61 +15,80 @@ jobs:
       matrix:
         include:
           - platform: windows-latest
-            target: x86_64-pc-windows-msvc
+            fetch: windows
+            builder: --win
           - platform: macos-latest
-            target: aarch64-apple-darwin
-          - platform: macos-13
-            target: x86_64-apple-darwin
-          - platform: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
+            fetch: mac arm64
+            builder: --mac --arm64
+          - platform: macos-latest
+            fetch: mac x64
+            builder: --mac --x64
+          - platform: ubuntu-latest
+            fetch: linux x64
+            builder: --linux
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Linux system dependencies
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Install frontend dependencies
+      - name: Install dependencies
         run: npm ci
 
-      - name: Generate app icons from SVG source
-        run: npx tauri icon src-tauri/icons/app-icon.svg
-
-      - name: Fetch sidecar binaries (Windows)
+      - name: Fetch yt-dlp + ffmpeg (Windows)
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: ./scripts/fetch-binaries.ps1
 
-      - name: Fetch sidecar binaries (macOS / Linux)
+      - name: Fetch yt-dlp + ffmpeg (macOS / Linux)
         if: matrix.platform != 'windows-latest'
         shell: bash
         run: |
           chmod +x scripts/fetch-binaries.sh
-          ./scripts/fetch-binaries.sh
-          cd src-tauri/binaries
-          ls -la
+          ./scripts/fetch-binaries.sh ${{ matrix.fetch }}
+          ls -la resources/bin
 
-      - name: Build and publish release
-        uses: tauri-apps/tauri-action@v0
+      - name: Build the UI
+        run: npm run build
+
+      - name: Generate app icons from SVG source
+        run: npm run icons
+
+      - name: Build installers (Electron)
+        run: npx electron-builder ${{ matrix.builder }} --publish never
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload installers as artifacts
+        uses: actions/upload-artifact@v4
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "YouTube Downloader ${{ github.ref_name }}"
-          releaseBody: "Download the installer for your system below. Windows: .exe - macOS: .dmg - Linux: .deb / .AppImage"
-          releaseDraft: true
-          prerelease: false
-          args: --target ${{ matrix.target }}
+          name: installers-${{ strategy.job-index }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
+            release/*.deb
+          if-no-files-found: ignore
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: "YouTube Downloader ${{ github.ref_name }}"
+          body: "Download the installer for your system below. Windows: .exe — macOS: .dmg — Linux: .AppImage / .deb"
+          files: artifacts/**
