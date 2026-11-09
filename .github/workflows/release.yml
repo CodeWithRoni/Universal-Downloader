@@ -1,4 +1,4 @@
-name: Release — RoniTube Downloader
+name: Release — YouTube Downloader
 
 on:
   push:
@@ -65,7 +65,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "RoniTube Downloader ${{ github.ref_name }}"
+          releaseName: "YouTube Downloader ${{ github.ref_name }}"
           releaseBody: "Download the installer for your system below. Windows: .exe - macOS: .dmg - Linux: .deb / .AppImage"
           releaseDraft: true
           prerelease: false
