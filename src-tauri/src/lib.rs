@@ -1,4 +1,4 @@
-// RoniTube Downloader — Rust backend
+// YouTube Downloader — Rust backend
 // All downloading is done by the yt-dlp binary (bundled sidecar, a copy the
 // app downloaded on first run, or yt-dlp from the system PATH — in that order).
 // ffmpeg is used by yt-dlp to merge video+audio and to extract MP3 audio.
@@ -568,5 +568,5 @@ pub fn run() {
             cancel_download
         ])
         .run(tauri::generate_context!())
-        .expect("error while running RoniTube Downloader");
+        .expect("error while running YouTube Downloader");
 }
