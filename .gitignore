@@ -1,6 +1,9 @@
 node_modules
 dist
-src-tauri/target
-src-tauri/binaries/*
-!src-tauri/binaries/.gitkeep
+release
+resources/bin/*
+!resources/bin/.gitkeep
+build/icon.png
+build/icon.ico
+build/icon.icns
 .DS_Store

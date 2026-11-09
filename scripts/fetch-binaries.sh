@@ -1,28 +1,43 @@
 #!/usr/bin/env bash
-# Download yt-dlp + ffmpeg sidecar binaries for THIS machine into
-# src-tauri/binaries/ with the target-triple names Tauri expects.
-# Usage:  ./scripts/fetch-binaries.sh
+# Download yt-dlp + ffmpeg into resources/bin/ for a target platform.
+# The Electron app bundles whatever is in resources/bin/ (electron-builder
+# extraResources), and in development the main process looks there too.
+#
+# Usage:  ./scripts/fetch-binaries.sh [linux|mac] [x64|arm64]
+#         (no arguments = this machine)
 set -euo pipefail
-mkdir -p "$(dirname "$0")/../src-tauri/binaries"
-cd "$(dirname "$0")/../src-tauri/binaries"
+cd "$(dirname "$0")/.."
+mkdir -p resources/bin
 
-OS="$(uname -s)"; ARCH="$(uname -m)"
-case "$OS" in
-  Linux)
-    if [ "$ARCH" = "x86_64" ]; then TRIPLE="x86_64-unknown-linux-gnu"; YT="yt-dlp_linux"; FF="https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
-    else TRIPLE="aarch64-unknown-linux-gnu"; YT="yt-dlp_linux_aarch64"; FF="https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz"; fi
-    curl -L -o "yt-dlp-$TRIPLE" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/$YT"
-    curl -L -o ffmpeg.tar.xz "$FF"
-    tar -xf ffmpeg.tar.xz --strip-components=1 --wildcards '*/ffmpeg'
-    mv ffmpeg "ffmpeg-$TRIPLE"; rm ffmpeg.tar.xz
-    ;;
-  Darwin)
-    if [ "$ARCH" = "arm64" ]; then TRIPLE="aarch64-apple-darwin"; else TRIPLE="x86_64-apple-darwin"; fi
-    curl -L -o "yt-dlp-$TRIPLE" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
-    curl -L -o ffmpeg.zip "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip"
-    unzip -o ffmpeg.zip; mv ffmpeg "ffmpeg-$TRIPLE"; rm ffmpeg.zip
-    ;;
-  *) echo "Unsupported OS here — on Windows use scripts/fetch-binaries.ps1"; exit 1;;
+OS="${1:-}"
+ARCH="${2:-}"
+if [ -z "$OS" ]; then
+  case "$(uname -s)" in
+    Linux) OS=linux ;;
+    Darwin) OS=mac ;;
+    *) echo "Unsupported OS here — on Windows use scripts/fetch-binaries.ps1"; exit 1 ;;
+  esac
+fi
+if [ -z "$ARCH" ]; then
+  case "$(uname -m)" in
+    x86_64|amd64) ARCH=x64 ;;
+    arm64|aarch64) ARCH=arm64 ;;
+    *) echo "Unsupported architecture: $(uname -m)"; exit 1 ;;
+  esac
+fi
+
+# ffmpeg binaries come from the ffmpeg-static project's GitHub releases —
+# one ready-to-run file per platform/arch, no archives to unpack.
+FF_TAG="b6.0"
+case "$OS-$ARCH" in
+  linux-x64)   YT="yt-dlp_linux";         FF="ffmpeg-linux-x64" ;;
+  linux-arm64) YT="yt-dlp_linux_aarch64"; FF="ffmpeg-linux-arm64" ;;
+  mac-x64)     YT="yt-dlp_macos";         FF="ffmpeg-darwin-x64" ;;
+  mac-arm64)   YT="yt-dlp_macos";         FF="ffmpeg-darwin-arm64" ;;
+  *) echo "Unsupported target: $OS-$ARCH"; exit 1 ;;
 esac
-chmod +x "yt-dlp-$TRIPLE" "ffmpeg-$TRIPLE"
-echo "Done: src-tauri/binaries/yt-dlp-$TRIPLE and ffmpeg-$TRIPLE"
+
+curl -fL -o resources/bin/yt-dlp "https://github.com/yt-dlp/yt-dlp/releases/latest/download/$YT"
+curl -fL -o resources/bin/ffmpeg "https://github.com/eugeneware/ffmpeg-static/releases/download/$FF_TAG/$FF"
+chmod +x resources/bin/yt-dlp resources/bin/ffmpeg
+echo "Done: resources/bin/yt-dlp ($YT) + resources/bin/ffmpeg ($FF)"

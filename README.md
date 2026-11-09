@@ -1,7 +1,7 @@
 # YouTube Downloader — v1 (Desktop)
 
-YouTube ডাউনলোডার ডেস্কটপ অ্যাপ — **Tauri 2 + React** ফ্রন্টএন্ড, **Rust** ব্যাকএন্ড,
-ডাউনলোড ইঞ্জিন **yt-dlp**, মার্জ/MP3 কনভার্সনের জন্য **ffmpeg**।
+YouTube ডাউনলোডার ডেস্কটপ অ্যাপ — **Electron + React** ফ্রন্টএন্ড, **Node.js** ব্যাকএন্ড
+(পুরোটাই JavaScript), ডাউনলোড ইঞ্জিন **yt-dlp**, মার্জ/MP3 কনভার্সনের জন্য **ffmpeg**।
 
 ## ✨ ফিচার
 
@@ -17,17 +17,19 @@ YouTube ডাউনলোডার ডেস্কটপ অ্যাপ — **
 
 ## 🛠️ ডেভেলপমেন্টে চালানো
 
-আগে দরকার: Node 20+, Rust (rustup), আর OS অনুযায়ী Tauri-র সিস্টেম ডিপেন্ডেন্সি
-(Linux-এ `libwebkit2gtk-4.1-dev` ইত্যাদি — Tauri-র অফিসিয়াল গাইড দেখো)।
+আগে দরকার শুধু **Node 20+** (আর কিছু না — কোনো Rust বা সিস্টেম ডিপেন্ডেন্সি লাগে না)।
 
 ```bash
 npm install
 ./scripts/fetch-binaries.sh        # Windows-এ: .\scripts\fetch-binaries.ps1
-npx tauri icon src-tauri/icons/app-icon.svg   # আইকন ফাইলগুলো তৈরি (একবারই)
-npm run tauri dev
+                                   # (নিজের মেশিনের yt-dlp + ffmpeg resources/bin-এ আনবে)
+
+# দুটো টার্মিনালে:
+npm run dev                        # ১) Vite dev সার্ভার (http://localhost:1420)
+npm run dev:electron               # ২) Electron অ্যাপ (dev সার্ভার থেকে UI লোড করবে)
 ```
 
-শুধু UI-র ডিজাইন দেখতে (Tauri ছাড়া, ব্রাউজারে ডেমো মোডে):
+শুধু UI-র ডিজাইন দেখতে (Electron ছাড়া, ব্রাউজারে ডেমো মোডে):
 ```bash
 npm run dev    # http://localhost:1420
 ```
@@ -35,23 +37,29 @@ npm run dev    # http://localhost:1420
 ## 📦 ইনস্টলার বানানো
 
 ```bash
-npm run tauri build
+npm run build      # UI বিল্ড (dist/)
+npm run dist       # electron-builder দিয়ে এই মেশিনের ইনস্টলার
 ```
-আউটপুট `src-tauri/target/release/bundle/`-তে: Windows `.exe/.msi`, macOS `.dmg`, Linux `.deb/.AppImage`।
+আউটপুট `release/`-তে: Windows `.exe` (NSIS), macOS `.dmg`, Linux `.AppImage` / `.deb`।
 
 **সব প্ল্যাটফর্মের ইনস্টলার একসাথে (সহজ পথ):** প্রজেক্টটা GitHub-এ পুশ করে
-`v1.0.0` নামে ট্যাগ দিলেই `.github/workflows/release.yml` চারটা মেশিনে
-(Windows, Mac Intel, Mac Apple Silicon, Linux) বিল্ড করে Draft Release-এ ইনস্টলার জমা দেবে।
+`v1.0.0` নামে ট্যাগ দিলেই `.github/workflows/release.yml` চারটা কনফিগে
+(Windows, Mac Apple Silicon, Mac Intel, Linux) বিল্ড করে Draft Release-এ ইনস্টলার জমা দেবে।
+Actions ট্যাব থেকে হাতেও (workflow_dispatch) চালানো যায় — তখন ইনস্টলারগুলো Artifacts-এ পাওয়া যাবে।
 
 ## 📁 কাঠামো
 
 ```
 src/                 React UI (App.jsx — পুরো ইন্টারফেস)
-src-tauri/src/lib.rs Rust ব্যাকএন্ড — yt-dlp কমান্ড: get_info, start_download,
-                     cancel_download, tools_status, download_ytdlp
-src-tauri/binaries/  yt-dlp + ffmpeg sidecar (fetch স্ক্রিপ্ট দিয়ে আসে, git-এ যায় না)
+electron/main.cjs    Electron মেইন প্রসেস — উইন্ডো + IPC হ্যান্ডলার
+electron/preload.cjs রেন্ডারারের জন্য নিরাপদ ব্রিজ (window.desktopAPI)
+electron/core.cjs    আসল লজিক (খাঁটি Node.js) — yt-dlp চালানো, ইনফো পার্স,
+                     প্রগ্রেস, Cancel, প্রথম রানে yt-dlp ডাউনলোড
+resources/bin/       yt-dlp + ffmpeg (fetch স্ক্রিপ্ট দিয়ে আসে, git-এ যায় না)
+build/               অ্যাপ আইকন (icon.png / .ico / .icns)
 scripts/             fetch-binaries.sh / .ps1
 .github/workflows/   release.yml — ট্যাগ দিলেই সব প্ল্যাটফর্মের বিল্ড
+                     web-pages.yml — ওয়েব প্রিভিউ (GitHub Pages)
 ```
 
 ## ⚠️ নোট
@@ -60,5 +68,5 @@ scripts/             fetch-binaries.sh / .ps1
   তাই ffmpeg না থাকলে ওই কোয়ালিটি আর MP3 কাজ করবে না (720p পর্যন্ত ffmpeg ছাড়াও চলে)।
 - অ্যাপটি ব্যক্তিগত ব্যবহারের জন্য। ক্রিয়েটরদের কপিরাইট ও YouTube-এর শর্ত মেনে ব্যবহার করো।
   Play Store / App Store-এ এই ধরনের অ্যাপ সাধারণত অনুমোদন পায় না — বিতরণ GitHub Release দিয়ে করো।
-- v2 পরিকল্পনা: Android APK (Tauri mobile / yt-dlp Android পোর্ট)। iOS আপাতত বাইরে —
+- v2 পরিকল্পনা: Android APK (আলাদা পথ)। iOS আপাতত বাইরে —
   Apple-এর সীমাবদ্ধতায় বাস্তবসম্মত নয়।

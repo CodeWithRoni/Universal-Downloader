@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 
-const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+const isDesktop = typeof window !== 'undefined' && !!window.desktopAPI
+const api = () => window.desktopAPI
 
-async function invoke(cmd, args) {
-  const { invoke: tauriInvoke } = await import('@tauri-apps/api/core')
-  return tauriInvoke(cmd, args)
+function cleanErr(e) {
+  return String((e && e.message) || e).replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/, '')
 }
 
 const GENERIC_HEIGHTS = [2160, 1440, 1080, 720, 480, 360, 240, 144]
@@ -14,7 +14,7 @@ const GENERIC_AUDIO = [
   { key: '128', label: 'MP3 • 128 kbps (Smallest)' },
 ]
 
-// ---------- demo data for browser preview (npm run dev without Tauri) ----------
+// ---------- demo data for browser preview (no desktop app) ----------
 const DEMO_VIDEO = {
   kind: 'video', title: 'Demo Video — Browser Preview Mode', thumbnail: '',
   duration: 754, uploader: 'Demo Channel',
@@ -52,15 +52,11 @@ export default function App() {
 
   // ---- init: tools status + default folder; progress listener ----
   useEffect(() => {
-    if (!isTauri) { setTools({ yt_dlp: false, ffmpeg: false, demo: true }); setOutDir('~/Downloads'); return }
-    invoke('tools_status').then(setTools).catch(() => setTools({ yt_dlp: false, ffmpeg: false }))
-    invoke('default_download_dir').then(setOutDir).catch(() => {})
-    let unlisten
-    import('@tauri-apps/api/event').then(async ({ listen }) => {
-      unlisten = await listen('download-progress', (e) => {
-        const p = e.payload
-        setJobs((prev) => prev.map((j) => (j.id === p.id ? { ...j, ...p } : j)))
-      })
+    if (!isDesktop) { setTools({ yt_dlp: false, ffmpeg: false, demo: true }); setOutDir('~/Downloads'); return }
+    api().toolsStatus().then(setTools).catch(() => setTools({ yt_dlp: false, ffmpeg: false }))
+    api().defaultDownloadDir().then(setOutDir).catch(() => {})
+    const unlisten = api().onProgress((p) => {
+      setJobs((prev) => prev.map((j) => (j.id === p.id ? { ...j, ...p } : j)))
     })
     return () => { if (unlisten) unlisten() }
   }, [])
@@ -78,7 +74,7 @@ export default function App() {
     if (!link) return
     setProbing(true); setError(''); setInfo(null)
     try {
-      const data = isTauri ? await invoke('get_info', { url: link }) : DEMO_VIDEO
+      const data = isDesktop ? await api().getInfo(link) : DEMO_VIDEO
       setInfo(data)
       if (data.kind === 'video') {
         setHeight(data.video_options?.[1]?.height ?? data.video_options?.[0]?.height ?? 720)
@@ -88,15 +84,14 @@ export default function App() {
         const all = {}; data.entries.forEach((en) => { all[en.id] = true }); setSelected(all)
       }
     } catch (e) {
-      setError(isTauri ? String(e) : 'Demo mode: run the Tauri app for real downloads.')
+      setError(isDesktop ? cleanErr(e) : 'Demo mode: run the desktop app for real downloads.')
     } finally { setProbing(false) }
   }
 
   async function pickFolder() {
-    if (!isTauri) return
+    if (!isDesktop) return
     try {
-      const { open } = await import('@tauri-apps/plugin-dialog')
-      const dir = await open({ directory: true, multiple: false, defaultPath: outDir || undefined })
+      const dir = await api().pickFolder()
       if (dir) setOutDir(dir)
     } catch { /* user can also type the path manually */ }
   }
@@ -127,7 +122,7 @@ export default function App() {
 
   async function startJob(job) {
     setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: 'downloading' } : j)))
-    if (!isTauri) {
+    if (!isDesktop) {
       // demo simulation
       let p = 0
       timers.current[job.id] = setInterval(() => {
@@ -142,22 +137,22 @@ export default function App() {
       return
     }
     try {
-      await invoke('start_download', {
-        jobId: job.id, url: job.url, mode: job.mode, height: job.height,
+      await api().startDownload({
+        id: job.id, url: job.url, mode: job.mode, height: job.height,
         formatId: job.formatId, audioQuality: job.audioQuality, outDir,
       })
     } catch (e) {
-      setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: 'error', error: String(e) } : j)))
+      setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: 'error', error: cleanErr(e) } : j)))
     }
   }
 
   async function cancelJob(job) {
-    if (!isTauri) {
+    if (!isDesktop) {
       clearInterval(timers.current[job.id])
       setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: 'cancelled' } : j)))
       return
     }
-    try { await invoke('cancel_download', { jobId: job.id }) } catch { /* already finished */ }
+    try { await api().cancelDownload(job.id) } catch { /* already finished */ }
     setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: 'cancelled' } : j)))
   }
 
@@ -178,12 +173,12 @@ export default function App() {
             : tools.demo ? 'Browser preview — demo mode'
             : tools.yt_dlp ? `yt-dlp ${tools.version || ''} ready${tools.ffmpeg ? ' • ffmpeg ready' : ' • ffmpeg missing (needed above 720p & MP3)'}`
             : 'yt-dlp not found'}
-          {isTauri && tools && !tools.yt_dlp && (
+          {isDesktop && tools && !tools.yt_dlp && (
             <button
               style={{ marginLeft: 10, background: 'var(--grad)', border: 'none', color: '#fff', borderRadius: 8, padding: '4px 12px', fontWeight: 700 }}
               onClick={async (e) => {
                 e.target.textContent = 'Installing…'
-                try { await invoke('download_ytdlp'); setTools(await invoke('tools_status')) }
+                try { await api().downloadYtdlp(); setTools(await api().toolsStatus()) }
                 catch { e.target.textContent = 'Install failed — check internet' }
               }}
             >Install yt-dlp</button>
@@ -204,7 +199,7 @@ export default function App() {
             {probing ? 'Fetching…' : 'Fetch'}
           </button>
         </div>
-        {!isTauri && (
+        {!isDesktop && (
         <div style={{ marginTop: 14, border: '1px dashed var(--border)', borderRadius: 12, padding: '12px 14px', color: 'var(--muted)', fontSize: '.9rem' }}>
           🌐 You are viewing the <strong style={{ color: '#fff' }}>web preview</strong> — the full design works here with demo data,
           but real downloads need the desktop app (a browser cannot run the download engine).
@@ -329,7 +324,7 @@ export default function App() {
         </section>
       )}
 
-      <footer>For personal use only — please respect creators' copyright and YouTube's terms. Built with Tauri + React + yt-dlp.</footer>
+      <footer>For personal use only — please respect creators' copyright and YouTube's terms. Built with Electron + React + yt-dlp.</footer>
     </div>
   )
 }

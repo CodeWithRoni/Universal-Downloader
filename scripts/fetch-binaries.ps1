@@ -1,16 +1,13 @@
-# Download yt-dlp + ffmpeg sidecar binaries for Windows into
-# src-tauri\binaries\ with the target-triple names Tauri expects.
+# Download yt-dlp + ffmpeg for Windows into resources\bin\.
+# The Electron app bundles whatever is in resources\bin\ (electron-builder
+# extraResources), and in development the main process looks there too.
 # Usage (PowerShell):  .\scripts\fetch-binaries.ps1
 $ErrorActionPreference = "Stop"
-$triple = "x86_64-pc-windows-msvc"
-$dir = Join-Path $PSScriptRoot "..\src-tauri\binaries"
+$root = Split-Path -Parent $PSScriptRoot
+$dir = Join-Path $root "resources\bin"
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
-Set-Location $dir
 
-Invoke-WebRequest "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile "yt-dlp-$triple.exe"
-Invoke-WebRequest "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "ffmpeg.zip"
-Expand-Archive "ffmpeg.zip" -DestinationPath "ffmpeg-tmp" -Force
-$ff = Get-ChildItem "ffmpeg-tmp" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
-Copy-Item $ff.FullName "ffmpeg-$triple.exe"
-Remove-Item "ffmpeg.zip"; Remove-Item "ffmpeg-tmp" -Recurse
-Write-Host "Done: yt-dlp-$triple.exe and ffmpeg-$triple.exe in src-tauri\binaries"
+Invoke-WebRequest "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile (Join-Path $dir "yt-dlp.exe")
+# ffmpeg: a single ready-to-run binary from the ffmpeg-static project's releases.
+Invoke-WebRequest "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-win32-x64" -OutFile (Join-Path $dir "ffmpeg.exe")
+Write-Host "Done: yt-dlp.exe and ffmpeg.exe in resources\bin"
