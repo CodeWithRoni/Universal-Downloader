@@ -37,7 +37,7 @@ case "$OS-$ARCH" in
   *) echo "Unsupported target: $OS-$ARCH"; exit 1 ;;
 esac
 
-curl -fL -o resources/bin/yt-dlp "https://github.com/yt-dlp/yt-dlp/releases/latest/download/$YT"
-curl -fL -o resources/bin/ffmpeg "https://github.com/eugeneware/ffmpeg-static/releases/download/$FF_TAG/$FF"
+curl -fL --retry 5 --retry-delay 5 --retry-all-errors -o resources/bin/yt-dlp "https://github.com/yt-dlp/yt-dlp/releases/latest/download/$YT"
+curl -fL --retry 5 --retry-delay 5 --retry-all-errors -o resources/bin/ffmpeg "https://github.com/eugeneware/ffmpeg-static/releases/download/$FF_TAG/$FF"
 chmod +x resources/bin/yt-dlp resources/bin/ffmpeg
 echo "Done: resources/bin/yt-dlp ($YT) + resources/bin/ffmpeg ($FF)"

@@ -81,5 +81,5 @@
     "icons": "node scripts/make-icons.cjs"
   },
   "type": "module",
-  "version": "1.2.0"
+  "version": "1.2.1"
 }
