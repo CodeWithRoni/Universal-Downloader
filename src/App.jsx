@@ -439,7 +439,7 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <div className="brand"><span className="brand-icon">▶</span> YouTube <span className="brand-thin">Downloader</span></div>
+        <div className="brand"><span className="brand-icon">▶</span> Universal <span className="brand-thin">Downloader</span></div>
         <div className={`tools ${tools?.yt_dlp ? 'ok' : 'warn'}`}>
           {!tools ? 'Checking tools…'
             : tools.demo ? (isNativeMobile ? 'Mobile preview — demo mode' : 'Browser preview — demo mode')
@@ -503,7 +503,7 @@ export default function App() {
           ) : (
             <>🌐 You are viewing the <strong style={{ color: '#fff' }}>web preview</strong> — the full design works here with demo data,
             but real downloads need the desktop app (a browser cannot run the download engine).
-            <a href="https://github.com/CodeWithRoni/Youtube-Downloader/releases" target="_blank" rel="noreferrer"
+            <a href="https://github.com/CodeWithRoni/Universal-Downloader/releases" target="_blank" rel="noreferrer"
                style={{ color: '#ff5e3a', fontWeight: 700, marginLeft: 8 }}>Get the Desktop App ↓</a></>
           )}
           <div style={{ marginTop: 8 }}>
@@ -610,7 +610,7 @@ export default function App() {
               Notify when a download finishes
             </label>
           </div>
-          <p className="hint">Tip: send a link straight to this app from anywhere with <code>ytdownloader://open?url=&lt;video link&gt;</code> (the app registers this on install).</p>
+          <p className="hint">Tip: send a link straight to this app from anywhere with <code>universaldownloader://open?url=&lt;video link&gt;</code> (the app registers this on install).</p>
         </section>
       )}
 

@@ -1,4 +1,4 @@
-// YouTube Downloader — preload bridge.
+// Universal Downloader — preload bridge.
 // Exposes a small, safe API to the renderer as window.desktopAPI.
 // (In a plain browser there is no preload, so window.desktopAPI is
 // undefined and the UI runs in demo mode.)

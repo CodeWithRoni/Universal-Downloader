@@ -1,6 +1,6 @@
-# YouTube Downloader — v1.2 (Desktop)
+# Universal Downloader — v1.2 (Desktop)
 
-YouTube ডাউনলোডার ডেস্কটপ অ্যাপ — **Electron + React** ফ্রন্টএন্ড, **Node.js** ব্যাকএন্ড
+Universal Downloader ডেস্কটপ অ্যাপ — **Electron + React** ফ্রন্টএন্ড, **Node.js** ব্যাকএন্ড
 (পুরোটাই JavaScript), ডাউনলোড ইঞ্জিন **yt-dlp**, মার্জ/MP3 কনভার্সনের জন্য **ffmpeg**।
 
 ## ✨ ফিচার
@@ -26,7 +26,7 @@ YouTube ডাউনলোডার ডেস্কটপ অ্যাপ — **
 - **ডুপ্লিকেট সতর্কতা** — একই ভিডিও আগে ডাউনলোড থাকলে Fetch-এর সময় জানান দেয়
 - **কিউ কন্ট্রোল** — ক্রম বদলানো (↑↓), Pause All / Resume All, **শিডিউল** (নির্দিষ্ট সময়ে শুরু), শেষ হলে **নোটিফিকেশন**, হিস্ট্রিতে মোট সাইজের পরিসংখ্যান
 - **বাংলা UI** — Settings থেকে English/বাংলা বদলানো যায়
-- **ডিপ লিংক** — `ytdownloader://open?url=<link>` দিয়ে অন্য অ্যাপ/ব্রাউজার থেকে সরাসরি লিংক পাঠানো যাবে; সিস্টেম ট্রে আইকন
+- **ডিপ লিংক** — `universaldownloader://open?url=<link>` দিয়ে অন্য অ্যাপ/ব্রাউজার থেকে সরাসরি লিংক পাঠানো যাবে; সিস্টেম ট্রে আইকন
 - **অটো-আপডেট** — নতুন রিলিজ এলে অ্যাপ নিজেই আপডেটের প্রস্তুতি নেয়; হেডার থেকে **yt-dlp ইঞ্জিন আপডেট** বোতাম
 - **ভিডিও প্রিভিউ** — ডাউনলোডের আগে অ্যাপের ভিতরেই ভিডিও চালিয়ে দেখা
 - YouTube মাঝে মাঝে "Sign in to confirm you're not a bot" দিয়ে আটকালে অটো **বিকল্প ক্লায়েন্ট দিয়ে রিট্রাই****
@@ -68,9 +68,9 @@ Actions ট্যাব থেকে হাতেও (workflow_dispatch) চা�
 একই React UI **Capacitor** দিয়ে মোবাইল অ্যাপ হিসাবে বিল্ড হয়। নেটিভ প্রজেক্ট
 (android/, ios/) রিপোতে রাখা হয় না — রিলিজ ওয়ার্কফ্লো বিল্ডের সময় তৈরি করে:
 
-- **Android:** `./gradlew assembleRelease` → `YouTube-Downloader.apk` (unsigned —
+- **Android:** `./gradlew assembleRelease` → `Universal-Downloader.apk` (unsigned —
   সরাসরি ইনস্টল করতে ফোনে "unknown sources" অনুমতি লাগবে)
-- **iOS:** সাইনিং ছাড়া বিল্ড → `YouTube-Downloader-unsigned.ipa` (ইনস্টল করতে
+- **iOS:** সাইনিং ছাড়া বিল্ড → `Universal-Downloader-unsigned.ipa` (ইনস্টল করতে
   AltStore/SideStore জাতীয় সাইডলোড টুল লাগবে; App Store-এ যাবে না)
 
 ⚠️ সৎ নোট: মোবাইল বিল্ডে আপাতত **UI-টাই চলে (ডেমো মোডে)** — ফোনে আসল ডাউনলোডের

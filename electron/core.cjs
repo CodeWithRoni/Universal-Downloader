@@ -1,4 +1,4 @@
-// YouTube Downloader — core logic (pure Node.js, no Electron imports).
+// Universal Downloader — core logic (pure Node.js, no Electron imports).
 // All downloading is done by the yt-dlp binary (bundled with the app, a copy
 // the app downloaded on first run, or yt-dlp from the system PATH — in that
 // order). ffmpeg is used by yt-dlp to merge video+audio and to extract MP3.
@@ -645,7 +645,7 @@ function downloadYtdlp(destDir) {
   const fetch = (u, redirects) =>
     new Promise((resolve, reject) => {
       https
-        .get(u, { headers: { 'User-Agent': 'YouTube-Downloader' } }, (res) => {
+        .get(u, { headers: { 'User-Agent': 'Universal-Downloader' } }, (res) => {
           if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             res.resume()
             if (redirects <= 0) {

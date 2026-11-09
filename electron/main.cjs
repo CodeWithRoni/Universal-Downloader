@@ -1,4 +1,4 @@
-// YouTube Downloader — Electron main process.
+// Universal Downloader — Electron main process.
 // Thin wiring only: window creation + IPC handlers that delegate to
 // core.cjs (all the real logic lives there and is plain Node.js).
 'use strict'
@@ -43,7 +43,7 @@ function createWindow() {
     height: 780,
     minWidth: 680,
     minHeight: 560,
-    title: 'YouTube Downloader',
+    title: 'Universal Downloader',
     icon: path.join(__dirname, '..', 'build', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -67,18 +67,18 @@ function createWindow() {
 }
 
 // ---------------------------------------------------------------------------
-// Deep links: ytdownloader://open?url=<encoded video link>
+// Deep links: universaldownloader://open?url=<encoded video link>
 // Lets other apps / a browser bookmarklet hand a link straight to the app.
 // ---------------------------------------------------------------------------
 let pendingLink = null
 
 function extractDeepLink(raw) {
-  if (!raw || typeof raw !== 'string' || !raw.startsWith('ytdownloader://')) return null
+  if (!raw || typeof raw !== 'string' || !raw.startsWith('universaldownloader://')) return null
   try {
     const u = new URL(raw)
     const q = u.searchParams.get('url')
     if (q) return q
-    const rest = raw.slice('ytdownloader://'.length)
+    const rest = raw.slice('universaldownloader://'.length)
     if (/^(www\.)?youtube\.com\//.test(rest) || /^youtu\.be\//.test(rest)) return `https://${rest}`
   } catch { /* not a usable link */ }
   return null
@@ -98,10 +98,10 @@ function sendExternalLink(link) {
 
 if (process.defaultApp) {
   if (process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient('ytdownloader', process.execPath, [path.resolve(process.argv[1])])
+    app.setAsDefaultProtocolClient('universaldownloader', process.execPath, [path.resolve(process.argv[1])])
   }
 } else {
-  app.setAsDefaultProtocolClient('ytdownloader')
+  app.setAsDefaultProtocolClient('universaldownloader')
 }
 app.on('open-url', (event, url) => {
   event.preventDefault()
@@ -119,11 +119,11 @@ function createTray() {
       .createFromPath(path.join(__dirname, '..', 'build', 'icon.png'))
       .resize({ width: 18, height: 18 })
     tray = new Tray(icon)
-    tray.setToolTip('YouTube Downloader')
+    tray.setToolTip('Universal Downloader')
     tray.setContextMenu(
       Menu.buildFromTemplate([
         {
-          label: 'Open YouTube Downloader',
+          label: 'Open Universal Downloader',
           click: () => {
             if (win && !win.isDestroyed()) { win.show(); win.focus() } else createWindow()
           },

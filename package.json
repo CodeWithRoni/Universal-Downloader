@@ -1,7 +1,7 @@
 {
   "author": "Md. Amzad Hossain Roni",
   "build": {
-    "appId": "com.codewithroni.youtubedownloader",
+    "appId": "com.codewithroni.universaldownloader",
     "directories": {
       "output": "release"
     },
@@ -36,9 +36,9 @@
     "nsis": {
       "allowToChangeInstallationDirectory": true,
       "oneClick": false,
-      "shortcutName": "YouTube Downloader"
+      "shortcutName": "Universal Downloader"
     },
-    "productName": "YouTube Downloader",
+    "productName": "Universal Downloader",
     "win": {
       "icon": "build/icon.ico",
       "target": "nsis"
@@ -46,7 +46,7 @@
     "publish": {
       "provider": "github",
       "owner": "CodeWithRoni",
-      "repo": "Youtube-Downloader"
+      "repo": "Universal-Downloader"
     }
   },
   "dependencies": {
@@ -57,7 +57,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
-  "description": "YouTube Downloader \u2014 video & audio downloader for YouTube",
+  "description": "Universal Downloader \u2014 video & audio downloader for YouTube",
   "devDependencies": {
     "@capacitor/cli": "^8.6.0",
     "@vitejs/plugin-react": "^4.3.1",
@@ -68,7 +68,7 @@
     "vite": "^5.4.8"
   },
   "main": "electron/main.cjs",
-  "name": "youtube-downloader",
+  "name": "universal-downloader",
   "private": true,
   "scripts": {
     "build": "vite build",
