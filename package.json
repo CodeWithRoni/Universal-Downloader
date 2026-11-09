@@ -1,1 +1,75 @@
-{"dependencies":{"@tauri-apps/api":"^2.1.1","@tauri-apps/plugin-dialog":"^2.0.1","react":"^18.3.1","react-dom":"^18.3.1"},"devDependencies":{"@tauri-apps/cli":"^2.1.0","@vitejs/plugin-react":"^4.3.1","vite":"^5.4.8"},"name":"youtube-downloader","private":true,"scripts":{"build":"vite build","dev":"vite","preview":"vite preview","tauri":"tauri"},"type":"module","version":"1.0.0"}
+{
+  "author": "Md. Amzad Hossain Roni",
+  "build": {
+    "appId": "com.codewithroni.youtubedownloader",
+    "directories": {
+      "output": "release"
+    },
+    "extraResources": [
+      {
+        "filter": [
+          "**/*"
+        ],
+        "from": "resources/bin",
+        "to": "bin"
+      }
+    ],
+    "files": [
+      "dist/**",
+      "electron/**",
+      "build/icon.png",
+      "package.json"
+    ],
+    "linux": {
+      "category": "Utility",
+      "icon": "build/icon.png",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    },
+    "mac": {
+      "category": "public.app-category.utilities",
+      "icon": "build/icon.icns",
+      "target": "dmg"
+    },
+    "nsis": {
+      "allowToChangeInstallationDirectory": true,
+      "oneClick": false,
+      "shortcutName": "YouTube Downloader"
+    },
+    "productName": "YouTube Downloader",
+    "win": {
+      "icon": "build/icon.ico",
+      "target": "nsis"
+    }
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "description": "YouTube Downloader \u2014 video & audio downloader for YouTube",
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "png2icons": "^2.0.1",
+    "sharp": "^0.35.5",
+    "vite": "^5.4.8"
+  },
+  "main": "electron/main.cjs",
+  "name": "youtube-downloader",
+  "private": true,
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "dev:electron": "ELECTRON_DEV_URL=http://localhost:1420 electron .",
+    "dist": "npm run icons && electron-builder",
+    "pack": "npm run icons && electron-builder --dir",
+    "preview": "vite preview",
+    "start": "electron .",
+    "icons": "node scripts/make-icons.cjs"
+  },
+  "type": "module",
+  "version": "1.0.0"
+}
