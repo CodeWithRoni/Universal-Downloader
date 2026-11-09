@@ -1,12 +1,12 @@
 [package]
-name = "ronitube-downloader"
+name = "youtube-downloader"
 version = "1.0.0"
-description = "RoniTube Downloader — YouTube video & audio downloader"
+description = "YouTube Downloader — video & audio downloader for YouTube"
 authors = ["Md. Amzad Hossain Roni"]
 edition = "2021"
 
 [lib]
-name = "ronitube_downloader_lib"
+name = "youtube_downloader_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
