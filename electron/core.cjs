@@ -118,6 +118,22 @@ async function runYtdlpJson(binPath, args) {
 // Info parsing (mirrors the shapes the React UI expects)
 // ---------------------------------------------------------------------------
 
+/// "90" -> 90, "1:30" -> 90, "1:02:03" -> 3723. Invalid -> null.
+function parseTime(v) {
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  if (typeof v !== 'string') return null
+  const s = v.trim()
+  if (!s) return null
+  if (/^\d+$/.test(s)) return parseInt(s, 10)
+  const parts = s.split(':')
+  if (parts.length < 2 || parts.length > 3 || parts.some((x) => !/^\d{1,2}$/.test(x))) return null
+  return parts.reduce((acc, x) => acc * 60 + parseInt(x, 10), 0)
+}
+
+function cookieArgs(opts) {
+  return opts && opts.cookiesBrowser ? ['--cookies-from-browser', opts.cookiesBrowser] : []
+}
+
 function parsePlaylist(data) {
   const entries = []
   let firstThumb = ''
@@ -236,22 +252,62 @@ function parseVideo(data) {
       return { height: h, label: `${h}p${tag}`, size_text: fmtSize(size), approx }
     })
 
+  // Sites whose formats yt-dlp cannot enumerate (many non-YouTube sites):
+  // offer one generic "best" choice instead of an empty list.
+  if (videoOptions.length === 0 && audioOptions.length === 0) {
+    videoOptions.push({ height: -1, label: 'Best quality (site default)', size_text: '—', approx: true })
+  }
+
   return {
     kind: 'video',
+    id: data.id || '',
     title: data.title || 'Untitled video',
     thumbnail: data.thumbnail || '',
     duration: fnum(data, 'duration'),
-    uploader: data.uploader || '',
+    uploader: data.uploader || data.channel || '',
+    is_live: !!data.is_live,
+    chapters: Array.isArray(data.chapters) ? data.chapters.length : 0,
+    site: data.extractor || '',
     video_options: videoOptions,
     audio_options: audioOptions,
     subtitle_options: parseSubtitles(data),
   }
 }
 
-async function getInfo(binPath, url) {
+async function getInfo(binPath, url, opts = {}) {
   const link = String(url || '').trim()
-  if (!link) throw new Error('Please paste a YouTube link first.')
+  if (!link) throw new Error('Please paste a link first.')
+  const cookies = cookieArgs(opts)
   const looksPlaylist = link.includes('list=') || link.includes('/playlist')
+
+  // A channel link (youtube.com/@name, /channel/…, /c/…, /user/…) means
+  // "the channel's latest videos" — fetch its videos tab as a playlist,
+  // limited to the newest N (opts.playlistEnd, default 20).
+  const isChannelUrl =
+    /(?:youtube\.com\/(?:@|channel\/|c\/|user\/))/.test(link) &&
+    !link.includes('watch?v=') &&
+    !link.includes('list=')
+  if (isChannelUrl) {
+    let channelUrl = link
+    const pathPart = channelUrl.split(/[?#]/)[0].replace(/\/$/, '')
+    if (!/\/(videos|shorts|streams)$/.test(pathPart)) channelUrl = `${pathPart}/videos`
+    const limit = opts.playlistEnd && opts.playlistEnd > 0 ? opts.playlistEnd : 20
+    const data = await runYtdlpJson(binPath, [
+      '--dump-single-json',
+      '--flat-playlist',
+      '--yes-playlist',
+      '--no-warnings',
+      '--playlist-end',
+      String(limit),
+      ...cookies,
+      channelUrl,
+    ])
+    if (data._type === 'playlist') {
+      const parsed = parsePlaylist(data)
+      parsed.isChannel = true
+      return parsed
+    }
+  }
 
   if (looksPlaylist) {
     const data = await runYtdlpJson(binPath, [
@@ -259,6 +315,7 @@ async function getInfo(binPath, url) {
       '--flat-playlist',
       '--yes-playlist',
       '--no-warnings',
+      ...cookies,
       link,
     ])
     if (data._type === 'playlist') return parsePlaylist(data)
@@ -269,16 +326,80 @@ async function getInfo(binPath, url) {
     '--dump-single-json',
     '--no-playlist',
     '--no-warnings',
+    ...cookies,
     link,
   ])
   return parseVideo(data)
+}
+
+/// Search YouTube by text (ytsearch) — returns flat video entries.
+function searchVideos(binPath, query, opts = {}) {
+  const q = String(query || '').trim()
+  if (!q) return Promise.reject(new Error('Type something to search for.'))
+  const limit = opts.limit && opts.limit > 0 ? opts.limit : 10
+  const args = [
+    '--dump-json',
+    '--flat-playlist',
+    '--no-warnings',
+    ...cookieArgs(opts),
+    `ytsearch${limit}:${q}`,
+  ]
+  return new Promise((resolve, reject) => {
+    const child = spawn(binPath, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (d) => { stdout += d })
+    child.stderr.on('data', (d) => { stderr += d })
+    child.on('error', (e) => reject(new Error(`Could not run yt-dlp: ${e.message}`)))
+    child.on('close', (code) => {
+      if (code !== 0) {
+        const tail = stderr.trim().split('\n').slice(-2).join(' ')
+        reject(new Error(`Search failed: ${tail}`))
+        return
+      }
+      const entries = []
+      for (const line of stdout.split('\n')) {
+        const s = line.trim()
+        if (!s) continue
+        try {
+          const e = JSON.parse(s)
+          if (!e.id) continue
+          const thumbs = Array.isArray(e.thumbnails) ? e.thumbnails : []
+          entries.push({
+            id: e.id,
+            title: e.title || 'Untitled video',
+            duration: typeof e.duration === 'number' ? e.duration : null,
+            url: typeof e.url === 'string' && e.url.startsWith('http') ? e.url : `https://www.youtube.com/watch?v=${e.id}`,
+            channel: e.channel || e.uploader || '',
+            thumbnail: thumbs.length ? thumbs[thumbs.length - 1].url || '' : '',
+          })
+        } catch { /* skip unparseable line */ }
+      }
+      resolve({ kind: 'search', entries })
+    })
+  })
 }
 
 // ---------------------------------------------------------------------------
 // Downloading
 // ---------------------------------------------------------------------------
 
-function buildDownloadArgs({ mode, height, formatId, audioQuality, outDir, ffmpegPath, subtitle, embedTags }) {
+function buildDownloadArgs(params) {
+  const {
+    mode, height, formatId, audioQuality, outDir, ffmpegPath, subtitle, embedTags,
+    trim, sponsorBlock, splitChapters, liveFromStart,
+    concurrentFragments, limitRate, archivePath, nameTemplate, playlistIndex,
+  } = params
+  const dir = String(outDir || '').replace(/[\\/]+$/, '')
+
+  // Output filename pattern (Settings).
+  let namePart = '%(title)s.%(ext)s'
+  if (nameTemplate === 'title-quality' && mode === 'video') {
+    namePart = '%(title)s [%(height)sp].%(ext)s'
+  } else if (nameTemplate === 'index-title' && playlistIndex != null) {
+    namePart = `${String(playlistIndex).padStart(2, '0')} - %(title)s.%(ext)s`
+  }
+
   const args = [
     '--newline',
     '--no-warnings',
@@ -286,9 +407,18 @@ function buildDownloadArgs({ mode, height, formatId, audioQuality, outDir, ffmpe
     '--progress-template',
     'download:TUBEGRAB|%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s',
     '-o',
-    `${String(outDir || '').replace(/[\\/]+$/, '')}/%(title)s.%(ext)s`,
+    `${dir}/${namePart}`,
   ]
+  if (splitChapters && mode === 'video') {
+    args.push('-o', `chapter:${dir}/%(section_number)02d - %(section_title)s.%(ext)s`)
+  }
   if (ffmpegPath) args.push('--ffmpeg-location', ffmpegPath)
+  if (concurrentFragments && concurrentFragments >= 2) {
+    args.push('--concurrent-fragments', String(concurrentFragments))
+  }
+  if (limitRate) args.push('--limit-rate', String(limitRate))
+  if (archivePath) args.push('--download-archive', archivePath)
+
   if (mode === 'audio') {
     args.push('-f', formatId || 'bestaudio/best')
     args.push('-x', '--audio-format', 'mp3', '--audio-quality', audioQuality ? `${audioQuality}K` : '0')
@@ -297,9 +427,14 @@ function buildDownloadArgs({ mode, height, formatId, audioQuality, outDir, ffmpe
       args.push('--embed-metadata', '--embed-thumbnail', '--convert-thumbnails', 'jpg')
     }
   } else {
-    const h = height || 720
-    args.push('-f', `bestvideo[height<=${h}]+bestaudio/best[height<=${h}]/best`)
-    args.push('--merge-output-format', 'mp4')
+    const h = height == null ? 720 : height
+    if (h === -1) {
+      // Generic site: take the best it offers, no forced container.
+      args.push('-f', 'bestvideo+bestaudio/best')
+    } else {
+      args.push('-f', `bestvideo[height<=${h}]+bestaudio/best[height<=${h}]/best`)
+      args.push('--merge-output-format', 'mp4')
+    }
     args.push('--embed-metadata')
     if (subtitle && subtitle.lang) {
       args.push(subtitle.auto ? '--write-auto-subs' : '--write-subs')
@@ -311,6 +446,21 @@ function buildDownloadArgs({ mode, height, formatId, audioQuality, outDir, ffmpe
         args.push('--convert-subs', 'srt')
       }
     }
+    if (trim && (trim.start || trim.end)) {
+      const s = parseTime(trim.start)
+      const e = parseTime(trim.end)
+      if (s != null || e != null) {
+        args.push('--download-sections', `*${s || 0}-${e == null ? '' : e}`)
+        args.push('--force-keyframes-at-cuts')
+      }
+    }
+    if (sponsorBlock === 'remove') {
+      args.push('--sponsorblock-remove', 'sponsor,intro,outro,selfpromo,preview')
+    } else if (sponsorBlock === 'mark') {
+      args.push('--sponsorblock-mark', 'sponsor,intro,outro,selfpromo')
+    }
+    if (splitChapters) args.push('--split-chapters')
+    if (liveFromStart) args.push('--live-from-start')
   }
   return args
 }
@@ -454,6 +604,9 @@ function startDownloadProcess({ binPath, args, url, id, onProgress }) {
       // stopped when the same link/quality/folder is downloaded again.
       if (status === 'done' && (finalPath || lastDestination)) {
         payload.filePath = finalPath || lastDestination
+        try {
+          payload.sizeBytes = fs.statSync(payload.filePath).size
+        } catch { /* file moved/deleted already */ }
       }
       onProgress(payload)
     })
@@ -536,6 +689,8 @@ module.exports = {
   parsePlaylist,
   parseVideo,
   getInfo,
+  searchVideos,
+  parseTime,
   buildDownloadArgs,
   parseProgressLine,
   startDownloadProcess,

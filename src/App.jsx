@@ -17,8 +17,8 @@ const GENERIC_AUDIO = [
 
 // ---------- demo data for browser preview (no desktop app) ----------
 const DEMO_VIDEO = {
-  kind: 'video', title: 'Demo Video — Browser Preview Mode', thumbnail: '',
-  duration: 754, uploader: 'Demo Channel',
+  kind: 'video', id: 'demo1234567', title: 'Demo Video — Browser Preview Mode', thumbnail: '',
+  duration: 754, uploader: 'Demo Channel', is_live: false, chapters: 12, site: 'youtube',
   video_options: [
     { height: 1080, label: '1080p (Full HD)', size_text: '~84.2 MB', approx: true },
     { height: 720, label: '720p (HD)', size_text: '46.7 MB', approx: false },
@@ -48,6 +48,61 @@ const GENERIC_SUBS = [
 ]
 const subKeyOf = (s) => `${s.lang}::${s.auto ? 'a' : 'm'}`
 
+// ---------- UI language (English / বাংলা) ----------
+const STRINGS = {
+  en: {
+    fetch: 'Fetch', fetching: 'Fetching…', saveTo: 'Save to:', browse: 'Browse…',
+    video: '🎬 Video', audio: '🎵 Audio (MP3)', subtitles: 'Subtitles:',
+    downloads: 'Downloads', history: 'History', settings: 'Settings',
+    pause: '⏸ Pause', resume: '▶ Resume', cancel: 'Cancel', retry: '↻ Retry',
+    openFile: '▶ Open file', folder: '📂 Folder', downloadAgain: '⬇ Download again',
+    remove: 'Remove', clearAll: 'Clear all', clearFinished: 'Clear finished',
+    queued: 'Queued', paused: 'Paused', done: '✓ Done', search: 'Search',
+    searchPh: 'Or search YouTube by name…', pastePh: 'Paste a link here — YouTube or 1000+ other sites…',
+    pauseAll: '⏸ Pause all', resumeAll: '▶ Resume all',
+  },
+  bn: {
+    fetch: 'খুঁজুন', fetching: 'খোঁজা হচ্ছে…', saveTo: 'সেভ হবে:', browse: 'ব্রাউজ…',
+    video: '🎬 ভিডিও', audio: '🎵 অডিও (MP3)', subtitles: 'সাবটাইটেল:',
+    downloads: 'ডাউনলোডসমূহ', history: 'ইতিহাস', settings: 'সেটিংস',
+    pause: '⏸ থামান', resume: '▶ আবার চালু', cancel: 'বাতিল', retry: '↻ আবার চেষ্টা',
+    openFile: '▶ ফাইল খুলুন', folder: '📂 ফোল্ডার', downloadAgain: '⬇ আবার ডাউনলোড',
+    remove: 'মুছুন', clearAll: 'সব মুছুন', clearFinished: 'শেষ হওয়াগুলো মুছুন',
+    queued: 'অপেক্ষমাণ', paused: 'থামানো', done: '✓ শেষ', search: 'সার্চ',
+    searchPh: 'অথবা নাম লিখে YouTube-এ খুঁজুন…', pastePh: 'এখানে লিংক পেস্ট করুন — YouTube বা আরও ১০০০+ সাইট…',
+    pauseAll: '⏸ সব থামান', resumeAll: '▶ সব চালু করুন',
+  },
+}
+
+const DEFAULT_SETTINGS = {
+  lang: 'en', defaultQuality: 720, parallel: 2, concurrentFragments: 4,
+  limitRate: '', audioDir: '', nameTemplate: 'title', cookiesBrowser: '',
+  channelLimit: 20, archiveSkip: true, notify: true,
+}
+
+function fmtBytes(n) {
+  if (!n || n <= 0) return ''
+  const u = ['B', 'KB', 'MB', 'GB']
+  let v = n, i = 0
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
+  return `${v.toFixed(1)} ${u[i]}`
+}
+
+function youtubeIdOf(u) {
+  const m = String(u || '').match(/(?:v=|youtu\.be\/|shorts\/)([A-Za-z0-9_-]{11})/)
+  return m ? m[1] : null
+}
+
+function pickDefaultHeight(options, wanted) {
+  if (!options || !options.length) return wanted
+  const heights = options.map((o) => o.height).filter((h) => h > 0)
+  if (!heights.length) return options[0].height
+  if (wanted === 'best') return heights[0]
+  if (heights.includes(wanted)) return wanted
+  const below = heights.filter((h) => h <= wanted)
+  return below.length ? below[0] : heights[heights.length - 1]
+}
+
 function fmtDuration(sec) {
   if (!sec && sec !== 0) return ''
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60)
@@ -72,21 +127,48 @@ export default function App() {
   const [history, setHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem('yd-history-v1') || '[]') } catch { return [] }
   })
+  const [settings, setSettings] = useState(() => {
+    try { return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem('yd-settings-v1') || '{}') } } catch { return DEFAULT_SETTINGS }
+  })
+  const [showSettings, setShowSettings] = useState(false)
+  const [trimStart, setTrimStart] = useState('')
+  const [trimEnd, setTrimEnd] = useState('')
+  const [sponsorSel, setSponsorSel] = useState('')
+  const [splitCh, setSplitCh] = useState(false)
+  const [liveChk, setLiveChk] = useState(false)
+  const [scheduleAt, setScheduleAt] = useState('')
+  const [dup, setDup] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState(null)
+  const [searching, setSearching] = useState(false)
+  const [updateStatus, setUpdateStatus] = useState(null)
   const timers = useRef({})
   const jobsRef = useRef([])
+  useEffect(() => {
+    try { localStorage.setItem('yd-settings-v1', JSON.stringify(settings)) } catch { /* ignore */ }
+  }, [settings])
+  const set = (patch) => setSettings((s) => ({ ...s, ...patch }))
+  const tr = (key) => (STRINGS[settings.lang] && STRINGS[settings.lang][key]) || STRINGS.en[key] || key
   useEffect(() => { jobsRef.current = jobs }, [jobs])
   useEffect(() => {
     try { localStorage.setItem('yd-history-v1', JSON.stringify(history)) } catch { /* full/blocked */ }
   }, [history])
 
-  function addHistory(job, filePath) {
+  function addHistory(job, filePath, sizeBytes) {
     setHistory((prev) => {
       if (prev.some((h) => h.jobId === job.id)) return prev
       return [{
         jobId: job.id, title: job.title, url: job.url, mode: job.mode,
-        height: job.height, filePath: filePath || null, finishedAt: Date.now(),
+        height: job.height, filePath: filePath || null, sizeBytes: sizeBytes || 0, finishedAt: Date.now(),
       }, ...prev].slice(0, 100)
     })
+  }
+
+  function notifyDone(job) {
+    if (!settings.notify) return
+    try {
+      new Notification('✓ Download complete', { body: job.title })
+    } catch { /* notifications unavailable here */ }
   }
 
   // ---- init: tools status + default folder; progress listener ----
@@ -97,32 +179,57 @@ export default function App() {
     const unlisten = api().onProgress((p) => {
       if (p.status === 'done') {
         const job = jobsRef.current.find((j) => j.id === p.id)
-        if (job) addHistory(job, p.filePath)
+        if (job) { addHistory(job, p.filePath, p.sizeBytes); notifyDone(job) }
       }
       setJobs((prev) => prev.map((j) => (j.id === p.id ? { ...j, ...p } : j)))
     })
-    return () => { if (unlisten) unlisten() }
+    const unLink = api().onExternalLink ? api().onExternalLink((link) => { setUrl(link); probe(link) }) : null
+    const unUpd = api().onUpdateStatus ? api().onUpdateStatus((s) => setUpdateStatus(s)) : null
+    return () => {
+      if (unlisten) unlisten()
+      if (unLink) unLink()
+      if (unUpd) unUpd()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ---- run queued jobs, max 2 at a time ----
+  // ---- run queued jobs, up to the Settings limit at a time ----
   useEffect(() => {
     const running = jobs.filter((j) => j.status === 'downloading' || j.status === 'processing').length
     const next = jobs.find((j) => j.status === 'queued')
-    if (next && running < 2) startJob(next)
+    if (next && running < (settings.parallel || 2)) startJob(next)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobs])
+  }, [jobs, settings.parallel])
 
-  async function probe() {
-    const link = url.trim()
+  // ---- scheduled jobs: move to the queue when their time comes ----
+  useEffect(() => {
+    const iv = setInterval(() => {
+      setJobs((prev) => {
+        if (!prev.some((j) => j.status === 'scheduled' && j.runAt && j.runAt <= Date.now())) return prev
+        return prev.map((j) => (j.status === 'scheduled' && j.runAt && j.runAt <= Date.now() ? { ...j, status: 'queued' } : j))
+      })
+    }, 4000)
+    return () => clearInterval(iv)
+  }, [])
+
+  async function probe(overrideUrl) {
+    const link = String(overrideUrl ?? url).trim()
     if (!link) return
-    setProbing(true); setError(''); setInfo(null)
+    setProbing(true); setError(''); setInfo(null); setDup(null)
     try {
-      const data = isDesktop ? await api().getInfo(link) : DEMO_VIDEO
+      const data = isDesktop
+        ? await api().getInfo(link, { cookiesBrowser: settings.cookiesBrowser, playlistEnd: settings.channelLimit })
+        : DEMO_VIDEO
       setInfo(data)
       setSubKey('')
+      setSplitCh(false)
+      setLiveChk(!!data.is_live)
       if (data.kind === 'video') {
-        setHeight(data.video_options?.[1]?.height ?? data.video_options?.[0]?.height ?? 720)
+        setHeight(pickDefaultHeight(data.video_options, settings.defaultQuality))
         setAudioChoice(data.audio_options?.[0]?.format_id ?? '')
+        const vid = youtubeIdOf(link) || data.id
+        const prev = history.find((h) => (vid && youtubeIdOf(h.url) === vid) || h.url === link)
+        if (prev) setDup(prev)
       } else {
         setHeight(720); setAudioChoice('192')
         const all = {}; data.entries.forEach((en) => { all[en.id] = true }); setSelected(all)
@@ -144,6 +251,22 @@ export default function App() {
     setJobs((prev) => [...newJobs, ...prev])
   }
 
+  function jobExtras(single) {
+    const runAt = scheduleAt ? new Date(scheduleAt).getTime() : null
+    return {
+      trim: single ? { start: trimStart, end: trimEnd } : null,
+      sponsorBlock: sponsorSel || null,
+      splitChapters: single && splitCh,
+      liveFromStart: single && liveChk,
+      concurrentFragments: settings.concurrentFragments,
+      limitRate: settings.limitRate,
+      useArchive: !single && settings.archiveSkip,
+      nameTemplate: settings.nameTemplate,
+      runAt,
+      status: runAt && runAt > Date.now() ? 'scheduled' : 'queued',
+    }
+  }
+
   function currentSubtitle() {
     if (mode !== 'video' || !subKey) return null
     const list = info?.kind === 'video' ? (info.subtitle_options || []) : GENERIC_SUBS
@@ -156,21 +279,26 @@ export default function App() {
       id: crypto.randomUUID(), url: url.trim(), title: info.title,
       mode, height: mode === 'video' ? height : null,
       formatId: mode === 'audio' ? audioChoice : null, audioQuality: null,
-      subtitle: currentSubtitle(), embedTags,
-      status: 'queued', percent: 0, speed: '', eta: '',
+      subtitle: currentSubtitle(), embedTags, playlistIndex: null,
+      ...jobExtras(true),
+      percent: 0, speed: '', eta: '',
     }])
   }
 
   function downloadPlaylist() {
     const chosen = info.entries.filter((en) => selected[en.id])
     if (!chosen.length) return
-    enqueue(chosen.map((en) => ({
-      id: crypto.randomUUID(), url: en.url, title: en.title,
-      mode, height: mode === 'video' ? height : null,
-      formatId: null, audioQuality: mode === 'audio' ? audioChoice : null,
-      subtitle: currentSubtitle(), embedTags,
-      status: 'queued', percent: 0, speed: '', eta: '',
-    })))
+    enqueue(chosen.map((en) => {
+      const idx = info.entries.indexOf(en)
+      return {
+        id: crypto.randomUUID(), url: en.url, title: en.title,
+        mode, height: mode === 'video' ? height : null,
+        formatId: null, audioQuality: mode === 'audio' ? audioChoice : null,
+        subtitle: currentSubtitle(), embedTags, playlistIndex: idx + 1,
+        ...jobExtras(false),
+        percent: 0, speed: '', eta: '',
+      }
+    }))
   }
 
   async function startJob(job) {
@@ -182,7 +310,7 @@ export default function App() {
         p += Math.random() * 9
         if (p >= 100) {
           clearInterval(timers.current[job.id])
-          addHistory(job, null)
+          addHistory(job, null, 0); notifyDone(job)
           setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, percent: 100, status: 'done', speed: '', eta: '' } : j)))
         } else {
           setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, percent: Math.floor(p), speed: '3.2MiB/s', eta: '00:12' } : j)))
@@ -193,8 +321,14 @@ export default function App() {
     try {
       await api().startDownload({
         id: job.id, url: job.url, mode: job.mode, height: job.height,
-        formatId: job.formatId, audioQuality: job.audioQuality, outDir,
+        formatId: job.formatId, audioQuality: job.audioQuality,
+        outDir: job.mode === 'audio' && settings.audioDir ? settings.audioDir : outDir,
         subtitle: job.subtitle || null, embedTags: job.embedTags !== false,
+        trim: job.trim || null, sponsorBlock: job.sponsorBlock || null,
+        splitChapters: !!job.splitChapters, liveFromStart: !!job.liveFromStart,
+        concurrentFragments: job.concurrentFragments, limitRate: job.limitRate,
+        useArchive: !!job.useArchive, nameTemplate: job.nameTemplate,
+        playlistIndex: job.playlistIndex ?? null,
       })
     } catch (e) {
       setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: 'error', error: cleanErr(e) } : j)))
@@ -231,12 +365,66 @@ export default function App() {
     setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: 'queued', percent: 0, error: undefined } : j)))
   }
 
+  function pauseAll() {
+    jobs.filter((j) => j.status === 'downloading' || j.status === 'processing').forEach((j) => pauseJob(j))
+  }
+  function resumeAll() {
+    setJobs((prev) => prev.map((j) => (j.status === 'paused' ? { ...j, status: 'queued' } : j)))
+  }
+  function moveJob(id, dir) {
+    setJobs((prev) => {
+      const i = prev.findIndex((j) => j.id === id)
+      const k = i + dir
+      if (i < 0 || k < 0 || k >= prev.length) return prev
+      const copy = [...prev]
+      const [it] = copy.splice(i, 1)
+      copy.splice(k, 0, it)
+      return copy
+    })
+  }
+
+  async function doSearch() {
+    const q = searchQuery.trim()
+    if (!q) return
+    setSearching(true); setSearchResults(null); setError('')
+    try {
+      if (isDesktop) {
+        const data = await api().searchVideos(q, { limit: 12, cookiesBrowser: settings.cookiesBrowser })
+        setSearchResults(data.entries)
+      } else {
+        setSearchResults([1, 2, 3].map((n) => ({
+          id: `demo${n}`, title: `Demo result ${n} for "${q}"`, duration: 300 + n * 61,
+          url: 'https://www.youtube.com/watch?v=demo', channel: 'Demo Channel', thumbnail: '',
+        })))
+      }
+    } catch (e) {
+      setError(cleanErr(e))
+    } finally { setSearching(false) }
+  }
+
+  function openSearchResult(entry) {
+    setUrl(entry.url)
+    setSearchResults(null)
+    probe(entry.url)
+  }
+
+  function quickDownload(entry, dlMode) {
+    enqueue([{
+      id: crypto.randomUUID(), url: entry.url, title: entry.title,
+      mode: dlMode, height: dlMode === 'video' ? (typeof settings.defaultQuality === 'number' ? settings.defaultQuality : 720) : null,
+      formatId: null, audioQuality: null, subtitle: null, embedTags: true, playlistIndex: null,
+      ...jobExtras(true),
+      percent: 0, speed: '', eta: '',
+    }])
+  }
+
   function redownload(item) {
     enqueue([{
       id: crypto.randomUUID(), url: item.url, title: item.title,
       mode: item.mode, height: item.mode === 'video' ? item.height : null,
-      formatId: null, audioQuality: null, subtitle: null, embedTags: true,
-      status: 'queued', percent: 0, speed: '', eta: '',
+      formatId: null, audioQuality: null, subtitle: null, embedTags: true, playlistIndex: null,
+      ...jobExtras(true),
+      percent: 0, speed: '', eta: '',
     }])
   }
 
@@ -268,7 +456,31 @@ export default function App() {
             >Install yt-dlp</button>
           )}
         </div>
+        <div className="header-actions">
+          {isDesktop && tools?.yt_dlp && (
+            <button className="job-btn" onClick={async (e) => {
+              const b = e.target; b.textContent = 'Updating…'
+              try { await api().downloadYtdlp(); setTools(await api().toolsStatus()); b.textContent = '⟳ Engine updated' }
+              catch { b.textContent = 'Update failed' }
+            }}>⟳ Update engine</button>
+          )}
+          <button className="job-btn" onClick={() => setShowSettings((s) => !s)}>⚙ {tr('settings')}</button>
+          <select className="lang-sel" value={settings.lang} onChange={(e) => set({ lang: e.target.value })}>
+            <option value="en">EN</option>
+            <option value="bn">বাংলা</option>
+          </select>
+        </div>
       </header>
+
+      {updateStatus?.state === 'ready' && (
+        <div className="update-banner">
+          <span>🎉 New app version {updateStatus.version || ''} is downloaded and ready.</span>
+          <button className="job-btn" onClick={() => api().installUpdate()}>Restart &amp; update</button>
+        </div>
+      )}
+      {updateStatus?.state === 'available' && (
+        <div className="update-banner subtle">⬇ Downloading app update {updateStatus.version || ''} in the background…</div>
+      )}
 
       <section className="paste-card">
         <div className="paste-row">
@@ -276,11 +488,11 @@ export default function App() {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && probe()}
-            placeholder="Paste a YouTube link here — video or playlist…"
+            placeholder={tr('pastePh')}
             spellCheck={false}
           />
           <button className="btn-fetch" onClick={probe} disabled={probing || !url.trim()}>
-            {probing ? 'Fetching…' : 'Fetch'}
+            {probing ? tr('fetching') : tr('fetch')}
           </button>
         </div>
         {!isDesktop && (
@@ -295,18 +507,112 @@ export default function App() {
                style={{ color: '#ff5e3a', fontWeight: 700, marginLeft: 8 }}>Get the Desktop App ↓</a></>
           )}
           <div style={{ marginTop: 8 }}>
-            ✨ <strong style={{ color: '#fff' }}>New in v1.1:</strong> Subtitles download • Pause / Resume • Download history • MP3 cover art &amp; tags.
+            ✨ <strong style={{ color: '#fff' }}>New in v1.2:</strong> Settings page • In-app search • Channel downloads • Trim &amp; SponsorBlock • 1000+ sites • বাংলা UI.
             Press <strong style={{ color: '#fff' }}>Fetch</strong> to try them in this demo.
           </div>
         </div>
       )}
       {error && <p className="error">⚠ {error}</p>}
         <div className="folder-row">
-          <span>Save to:</span>
+          <span>{tr('saveTo')}</span>
           <input value={outDir} onChange={(e) => setOutDir(e.target.value)} spellCheck={false} />
-          <button onClick={pickFolder}>Browse…</button>
+          <button onClick={pickFolder}>{tr('browse')}</button>
+        </div>
+        <div className="paste-row" style={{ marginTop: 10 }}>
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && doSearch()}
+            placeholder={tr('searchPh')}
+            spellCheck={false}
+          />
+          <button className="btn-fetch" onClick={doSearch} disabled={searching || !searchQuery.trim()}>
+            {searching ? '…' : `🔍 ${tr('search')}`}
+          </button>
         </div>
       </section>
+
+      {searchResults && (
+        <section className="result-card">
+          <div className="playlist-bar">
+            <strong>{searchResults.length} results</strong>
+            <button className="clear-btn" onClick={() => setSearchResults(null)}>Close</button>
+          </div>
+          {searchResults.map((en) => (
+            <div key={en.id + en.url} className="search-row">
+              {en.thumbnail ? <img src={en.thumbnail} alt="" /> : <div className="thumb-placeholder small">▶</div>}
+              <div className="search-meta">
+                <span className="job-title">{en.title}</span>
+                <span className="muted">{en.channel} {en.duration ? '• ' + fmtDuration(en.duration) : ''}</span>
+              </div>
+              <button className="job-btn" onClick={() => openSearchResult(en)}>{tr('fetch')}</button>
+              <button className="job-btn" onClick={() => quickDownload(en, 'video')}>⬇ Video</button>
+              <button className="job-btn" onClick={() => quickDownload(en, 'audio')}>🎵 MP3</button>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {showSettings && (
+        <section className="result-card">
+          <h3 style={{ marginTop: 0 }}>⚙ {tr('settings')}</h3>
+          <div className="settings-grid">
+            <label>Language / ভাষা
+              <select value={settings.lang} onChange={(e) => set({ lang: e.target.value })}>
+                <option value="en">English</option>
+                <option value="bn">বাংলা</option>
+              </select>
+            </label>
+            <label>Default quality
+              <select value={String(settings.defaultQuality)} onChange={(e) => set({ defaultQuality: e.target.value === 'best' ? 'best' : parseInt(e.target.value, 10) })}>
+                <option value="best">Best available</option>
+                {[2160, 1440, 1080, 720, 480, 360].map((h) => <option key={h} value={h}>{h}p</option>)}
+              </select>
+            </label>
+            <label>Parallel downloads (1–5)
+              <input type="number" min="1" max="5" value={settings.parallel} onChange={(e) => set({ parallel: Math.min(5, Math.max(1, parseInt(e.target.value || '2', 10))) })} />
+            </label>
+            <label>Speed boost — fragments (1–16)
+              <input type="number" min="1" max="16" value={settings.concurrentFragments} onChange={(e) => set({ concurrentFragments: Math.min(16, Math.max(1, parseInt(e.target.value || '4', 10))) })} />
+            </label>
+            <label>Speed limit (e.g. 2M, 500K — empty = unlimited)
+              <input type="text" value={settings.limitRate} onChange={(e) => set({ limitRate: e.target.value.trim() })} placeholder="unlimited" spellCheck={false} />
+            </label>
+            <label>Audio folder (optional — MP3s go elsewhere)
+              <input type="text" value={settings.audioDir} onChange={(e) => set({ audioDir: e.target.value })} placeholder="Same as video folder" spellCheck={false} />
+            </label>
+            <label>Filename pattern
+              <select value={settings.nameTemplate} onChange={(e) => set({ nameTemplate: e.target.value })}>
+                <option value="title">Title only</option>
+                <option value="title-quality">Title [720p]</option>
+                <option value="index-title">01 - Title (playlists)</option>
+              </select>
+            </label>
+            <label>Browser cookies (for age-restricted videos)
+              <select value={settings.cookiesBrowser} onChange={(e) => set({ cookiesBrowser: e.target.value })}>
+                <option value="">None</option>
+                <option value="chrome">Chrome</option>
+                <option value="firefox">Firefox</option>
+                <option value="edge">Edge</option>
+                <option value="brave">Brave</option>
+                <option value="chromium">Chromium</option>
+              </select>
+            </label>
+            <label>Channel downloads — latest videos
+              <input type="number" min="1" max="100" value={settings.channelLimit} onChange={(e) => set({ channelLimit: Math.min(100, Math.max(1, parseInt(e.target.value || '20', 10))) })} />
+            </label>
+            <label className="check-row">
+              <input type="checkbox" checked={settings.archiveSkip} onChange={(e) => set({ archiveSkip: e.target.checked })} />
+              Playlists: skip videos already downloaded before
+            </label>
+            <label className="check-row">
+              <input type="checkbox" checked={settings.notify} onChange={(e) => set({ notify: e.target.checked })} />
+              Notify when a download finishes
+            </label>
+          </div>
+          <p className="hint">Tip: send a link straight to this app from anywhere with <code>ytdownloader://open?url=&lt;video link&gt;</code> (the app registers this on install).</p>
+        </section>
+      )}
 
       {info && (
         <section className="result-card">
@@ -324,9 +630,29 @@ export default function App() {
             </div>
           </div>
 
+          {((info.site && info.site !== 'youtube') || info.is_live || info.isChannel || (info.kind === 'video' && info.chapters > 0)) && (
+            <div className="badge-row">
+              {info.site && info.site !== 'youtube' && <span className="badge">🌐 {info.site}</span>}
+              {info.is_live && <span className="badge live">🔴 LIVE</span>}
+              {info.isChannel && <span className="badge">📺 Channel — latest videos</span>}
+              {info.kind === 'video' && info.chapters > 0 && <span className="badge">📑 {info.chapters} chapters</span>}
+            </div>
+          )}
+          {dup && (
+            <p className="hint" style={{ color: '#ffd166' }}>⚠ You already downloaded this on {new Date(dup.finishedAt).toLocaleDateString()} — see History below.</p>
+          )}
+          {info.kind === 'video' && info.id && (!info.site || info.site === 'youtube') && (
+            <details className="preview">
+              <summary>▶ Preview</summary>
+              <div className="preview-frame">
+                <iframe src={`https://www.youtube.com/embed/${info.id}`} title="Video preview" allow="encrypted-media" allowFullScreen />
+              </div>
+            </details>
+          )}
+
           <div className="mode-toggle">
-            <button className={mode === 'video' ? 'active' : ''} onClick={() => setMode('video')}>🎬 Video</button>
-            <button className={mode === 'audio' ? 'active' : ''} onClick={() => setMode('audio')}>🎵 Audio (MP3)</button>
+            <button className={mode === 'video' ? 'active' : ''} onClick={() => setMode('video')}>{tr('video')}</button>
+            <button className={mode === 'audio' ? 'active' : ''} onClick={() => setMode('audio')}>{tr('audio')}</button>
           </div>
 
           {mode === 'video' ? (
@@ -340,7 +666,7 @@ export default function App() {
               ))}
               <p className="hint">Above 720p, YouTube sends video and audio separately — the app merges them into one MP4 with ffmpeg.</p>
               <div className="sub-row">
-                <span>Subtitles:</span>
+                <span>{tr('subtitles')}</span>
                 {(() => {
                   const list = info.kind === 'video' ? (info.subtitle_options || []) : GENERIC_SUBS
                   return list.length ? (
@@ -358,6 +684,38 @@ export default function App() {
                     Embed in video (otherwise a separate .srt file)
                   </label>
                 )}
+              </div>
+              <div className="extras">
+                {info.kind === 'video' && (
+                  <>
+                    <div className="extra-row">
+                      <span>✂ Trim:</span>
+                      <input className="time-in" value={trimStart} onChange={(e) => setTrimStart(e.target.value)} placeholder="Start 0:00" spellCheck={false} />
+                      <input className="time-in" value={trimEnd} onChange={(e) => setTrimEnd(e.target.value)} placeholder="End 1:30" spellCheck={false} />
+                      <span className="muted">mm:ss — empty = full video</span>
+                    </div>
+                    {info.chapters > 0 && (
+                      <label className="sub-embed">
+                        <input type="checkbox" checked={splitCh} onChange={(e) => setSplitCh(e.target.checked)} />
+                        Split into {info.chapters} chapter files
+                      </label>
+                    )}
+                    {info.is_live && (
+                      <label className="sub-embed">
+                        <input type="checkbox" checked={liveChk} onChange={(e) => setLiveChk(e.target.checked)} />
+                        🔴 Livestream — record from the beginning
+                      </label>
+                    )}
+                  </>
+                )}
+                <div className="extra-row">
+                  <span>SponsorBlock:</span>
+                  <select value={sponsorSel} onChange={(e) => setSponsorSel(e.target.value)}>
+                    <option value="">Off</option>
+                    <option value="remove">Remove sponsor / intro / outro segments</option>
+                    <option value="mark">Mark them as chapters</option>
+                  </select>
+                </div>
               </div>
             </div>
           ) : (
@@ -400,6 +758,11 @@ export default function App() {
             </div>
           )}
 
+          <div className="extra-row" style={{ marginBottom: 12 }}>
+            <span>🕐 Start at (optional):</span>
+            <input type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
+            {scheduleAt && <button className="job-btn" onClick={() => setScheduleAt('')}>Clear</button>}
+          </div>
           <button
             className="btn-download"
             onClick={info.kind === 'playlist' ? downloadPlaylist : downloadSingle}
@@ -413,17 +776,24 @@ export default function App() {
 
       {jobs.length > 0 && (
         <section className="jobs-card">
-          <h3>Downloads</h3>
+          <div className="playlist-bar">
+            <h3 style={{ margin: 0 }}>{tr('downloads')}</h3>
+            <span style={{ display: 'flex', gap: 8 }}>
+              <button className="clear-btn" onClick={pauseAll}>{tr('pauseAll')}</button>
+              <button className="clear-btn" onClick={resumeAll}>{tr('resumeAll')}</button>
+            </span>
+          </div>
           {jobs.map((j) => (
             <div key={j.id} className="job">
               <div className="job-top">
                 <span className="job-title">{j.title}</span>
                 <span className={`job-status ${j.status}`}>
-                  {j.status === 'queued' && 'Queued'}
+                  {j.status === 'queued' && tr('queued')}
+                  {j.status === 'scheduled' && `🕐 ${new Date(j.runAt).toLocaleString()}`}
                   {j.status === 'downloading' && `${j.percent || 0}% • ${j.speed || ''} ${j.eta ? '• ETA ' + j.eta : ''}`}
                   {j.status === 'processing' && 'Processing (merging / converting)…'}
-                  {j.status === 'paused' && `⏸ Paused • ${Math.floor(j.percent || 0)}%`}
-                  {j.status === 'done' && '✓ Done'}
+                  {j.status === 'paused' && `${tr('paused')} • ${Math.floor(j.percent || 0)}%`}
+                  {j.status === 'done' && `✓ Done${j.sizeBytes ? ' • ' + fmtBytes(j.sizeBytes) : ''}`}
                   {j.status === 'error' && `✗ ${j.error || 'Failed'}`}
                   {j.status === 'cancelled' && 'Cancelled'}
                 </span>
@@ -432,29 +802,35 @@ export default function App() {
                 <div className={`job-fill ${j.status}`} style={{ width: `${j.status === 'done' ? 100 : j.percent || 0}%` }} />
               </div>
               <div className="job-actions">
+                {j.status === 'queued' && (
+                  <>
+                    <button className="job-btn" onClick={() => moveJob(j.id, -1)}>↑</button>
+                    <button className="job-btn" onClick={() => moveJob(j.id, 1)}>↓</button>
+                  </>
+                )}
                 {(j.status === 'downloading' || j.status === 'processing') && (
-                  <button className="job-btn" onClick={() => pauseJob(j)}>⏸ Pause</button>
+                  <button className="job-btn" onClick={() => pauseJob(j)}>{tr('pause')}</button>
                 )}
                 {j.status === 'paused' && (
-                  <button className="job-btn" onClick={() => resumeJob(j)}>▶ Resume</button>
+                  <button className="job-btn" onClick={() => resumeJob(j)}>{tr('resume')}</button>
                 )}
                 {j.status === 'error' && (
-                  <button className="job-btn" onClick={() => retryJob(j)}>↻ Retry</button>
+                  <button className="job-btn" onClick={() => retryJob(j)}>{tr('retry')}</button>
                 )}
                 {j.status === 'done' && j.filePath && isDesktop && (
                   <>
-                    <button className="job-btn" onClick={() => api().openFile(j.filePath)}>▶ Open file</button>
-                    <button className="job-btn" onClick={() => api().showInFolder(j.filePath)}>📂 Folder</button>
+                    <button className="job-btn" onClick={() => api().openFile(j.filePath)}>{tr('openFile')}</button>
+                    <button className="job-btn" onClick={() => api().showInFolder(j.filePath)}>{tr('folder')}</button>
                   </>
                 )}
                 {(j.status === 'downloading' || j.status === 'queued' || j.status === 'processing' || j.status === 'paused') && (
-                  <button className="job-cancel" onClick={() => cancelJob(j)}>Cancel</button>
+                  <button className="job-cancel" onClick={() => cancelJob(j)}>{tr('cancel')}</button>
                 )}
               </div>
             </div>
           ))}
           <button className="clear-btn" onClick={() => setJobs((prev) => prev.filter((j) => ['downloading', 'processing', 'queued'].includes(j.status)))}>
-            Clear finished
+            {tr('clearFinished')}
           </button>
         </section>
       )}
@@ -462,33 +838,34 @@ export default function App() {
       {history.length > 0 && (
         <section className="jobs-card">
           <div className="playlist-bar">
-            <h3 style={{ margin: 0 }}>History</h3>
-            <button className="clear-btn" onClick={() => setHistory([])}>Clear all</button>
+            <h3 style={{ margin: 0 }}>{tr('history')}</h3>
+            <span className="muted">{history.length} downloads{fmtBytes(history.reduce((a, h) => a + (h.sizeBytes || 0), 0)) ? ' • ' + fmtBytes(history.reduce((a, h) => a + (h.sizeBytes || 0), 0)) + ' total' : ''}</span>
+            <button className="clear-btn" onClick={() => setHistory([])}>{tr('clearAll')}</button>
           </div>
           {history.map((h) => (
             <div key={h.jobId} className="job">
               <div className="job-top">
                 <span className="job-title">{h.title}</span>
                 <span className="job-status done">
-                  {new Date(h.finishedAt).toLocaleString()} • {h.mode === 'video' ? `Video${h.height ? ' ' + h.height + 'p' : ''}` : 'Audio MP3'}
+                  {new Date(h.finishedAt).toLocaleString()} • {h.mode === 'video' ? `Video${h.height ? ' ' + h.height + 'p' : ''}` : 'Audio MP3'}{h.sizeBytes ? ' • ' + fmtBytes(h.sizeBytes) : ''}
                 </span>
               </div>
               <div className="job-actions">
                 {h.filePath && isDesktop && (
                   <>
-                    <button className="job-btn" onClick={() => api().openFile(h.filePath)}>▶ Open file</button>
-                    <button className="job-btn" onClick={() => api().showInFolder(h.filePath)}>📂 Folder</button>
+                    <button className="job-btn" onClick={() => api().openFile(h.filePath)}>{tr('openFile')}</button>
+                    <button className="job-btn" onClick={() => api().showInFolder(h.filePath)}>{tr('folder')}</button>
                   </>
                 )}
-                <button className="job-btn" onClick={() => redownload(h)}>⬇ Download again</button>
-                <button className="job-cancel" onClick={() => setHistory((prev) => prev.filter((x) => x.jobId !== h.jobId))}>Remove</button>
+                <button className="job-btn" onClick={() => redownload(h)}>{tr('downloadAgain')}</button>
+                <button className="job-cancel" onClick={() => setHistory((prev) => prev.filter((x) => x.jobId !== h.jobId))}>{tr('remove')}</button>
               </div>
             </div>
           ))}
         </section>
       )}
 
-      <footer>For personal use only — please respect creators' copyright and YouTube's terms. Built with Electron + React + yt-dlp. • v1.1</footer>
+      <footer>For personal use only — please respect creators' copyright and YouTube's terms. Built with Electron + React + yt-dlp. • v1.2</footer>
     </div>
   )
 }
