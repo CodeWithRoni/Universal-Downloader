@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 const isDesktop = typeof window !== 'undefined' && !!window.desktopAPI
+const isNativeMobile = typeof window !== 'undefined' && !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())
 const api = () => window.desktopAPI
 
 function cleanErr(e) {
@@ -253,7 +254,7 @@ export default function App() {
         <div className="brand"><span className="brand-icon">▶</span> YouTube <span className="brand-thin">Downloader</span></div>
         <div className={`tools ${tools?.yt_dlp ? 'ok' : 'warn'}`}>
           {!tools ? 'Checking tools…'
-            : tools.demo ? 'Browser preview — demo mode'
+            : tools.demo ? (isNativeMobile ? 'Mobile preview — demo mode' : 'Browser preview — demo mode')
             : tools.yt_dlp ? `yt-dlp ${tools.version || ''} ready${tools.ffmpeg ? ' • ffmpeg ready' : ' • ffmpeg missing (needed above 720p & MP3)'}`
             : 'yt-dlp not found'}
           {isDesktop && tools && !tools.yt_dlp && (
@@ -284,10 +285,19 @@ export default function App() {
         </div>
         {!isDesktop && (
         <div style={{ marginTop: 14, border: '1px dashed var(--border)', borderRadius: 12, padding: '12px 14px', color: 'var(--muted)', fontSize: '.9rem' }}>
-          🌐 You are viewing the <strong style={{ color: '#fff' }}>web preview</strong> — the full design works here with demo data,
-          but real downloads need the desktop app (a browser cannot run the download engine).
-          <a href="https://github.com/CodeWithRoni/Youtube-Downloader/releases" target="_blank" rel="noreferrer"
-             style={{ color: '#ff5e3a', fontWeight: 700, marginLeft: 8 }}>Get the Desktop App ↓</a>
+          {isNativeMobile ? (
+            <>📱 You are viewing the <strong style={{ color: '#fff' }}>mobile preview</strong> — the design works here with demo data,
+            but real downloads currently need the desktop app. Phone downloads are planned for a future update.</>
+          ) : (
+            <>🌐 You are viewing the <strong style={{ color: '#fff' }}>web preview</strong> — the full design works here with demo data,
+            but real downloads need the desktop app (a browser cannot run the download engine).
+            <a href="https://github.com/CodeWithRoni/Youtube-Downloader/releases" target="_blank" rel="noreferrer"
+               style={{ color: '#ff5e3a', fontWeight: 700, marginLeft: 8 }}>Get the Desktop App ↓</a></>
+          )}
+          <div style={{ marginTop: 8 }}>
+            ✨ <strong style={{ color: '#fff' }}>New in v1.1:</strong> Subtitles download • Pause / Resume • Download history • MP3 cover art &amp; tags.
+            Press <strong style={{ color: '#fff' }}>Fetch</strong> to try them in this demo.
+          </div>
         </div>
       )}
       {error && <p className="error">⚠ {error}</p>}

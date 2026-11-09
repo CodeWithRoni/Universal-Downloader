@@ -45,11 +45,15 @@
     }
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/ios": "^8.6.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
-  "description": "YouTube Downloader \u2014 video & audio downloader for YouTube",
+  "description": "YouTube Downloader — video & audio downloader for YouTube",
   "devDependencies": {
+    "@capacitor/cli": "^8.6.0",
     "@vitejs/plugin-react": "^4.3.1",
     "electron": "^33.2.1",
     "electron-builder": "^25.1.8",

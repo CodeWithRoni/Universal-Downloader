@@ -51,6 +51,27 @@ npm run dist       # electron-builder দিয়ে এই মেশিনে�
 (Windows, Mac Apple Silicon, Mac Intel, Linux) বিল্ড করে Draft Release-এ ইনস্টলার জমা দেবে।
 Actions ট্যাব থেকে হাতেও (workflow_dispatch) চালানো যায় — তখন ইনস্টলারগুলো Artifacts-এ পাওয়া যাবে।
 
+## 📱 মোবাইল (Android APK / iOS IPA)
+
+একই React UI **Capacitor** দিয়ে মোবাইল অ্যাপ হিসাবে বিল্ড হয়। নেটিভ প্রজেক্ট
+(android/, ios/) রিপোতে রাখা হয় না — রিলিজ ওয়ার্কফ্লো বিল্ডের সময় তৈরি করে:
+
+- **Android:** `./gradlew assembleRelease` → `YouTube-Downloader.apk` (unsigned —
+  সরাসরি ইনস্টল করতে ফোনে "unknown sources" অনুমতি লাগবে)
+- **iOS:** সাইনিং ছাড়া বিল্ড → `YouTube-Downloader-unsigned.ipa` (ইনস্টল করতে
+  AltStore/SideStore জাতীয় সাইডলোড টুল লাগবে; App Store-এ যাবে না)
+
+⚠️ সৎ নোট: মোবাইল বিল্ডে আপাতত **UI-টাই চলে (ডেমো মোডে)** — ফোনে আসল ডাউনলোডের
+জন্য নেটিভ yt-dlp ইঞ্জিন (Android-এ youtube-dl-android প্লাগইন) আলাদা ধাপে যোগ
+করতে হবে। ডেস্কটপ বিল্ডেই সব ফিচার পুরোপুরি কাজ করে।
+
+লোকালে মোবাইল প্রজেক্ট বানাতে:
+```bash
+npm run build
+npx cap add android   # বা ios (macOS লাগবে সিঙ্ক/বিল্ডে)
+npx cap sync
+```
+
 ## 📁 কাঠামো
 
 ```
@@ -60,6 +81,7 @@ electron/preload.cjs রেন্ডারারের জন্য নিরা
 electron/core.cjs    আসল লজিক (খাঁটি Node.js) — yt-dlp চালানো, ইনফো পার্স,
                      প্রগ্রেস, Cancel, প্রথম রানে yt-dlp ডাউনলোড
 resources/bin/       yt-dlp + ffmpeg (fetch স্ক্রিপ্ট দিয়ে আসে, git-এ যায় না)
+capacitor.config.json মোবাইল (Capacitor) কনফিগ — android/ios প্রজেক্ট CI-তে তৈরি হয়
 build/               অ্যাপ আইকন (icon.png / .ico / .icns)
 scripts/             fetch-binaries.sh / .ps1
 .github/workflows/   release.yml — ট্যাগ দিলেই সব প্ল্যাটফর্মের বিল্ড
